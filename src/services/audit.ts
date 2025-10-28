@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { AuditLogEvent } from "../types/db";
+import type { AuditLogEvent, Database } from "../types/db";
 
 export const recordAuditEvent = async (
-  client: SupabaseClient,
+  client: SupabaseClient<Database>,
   event: AuditLogEvent,
 ): Promise<void> => {
   const { error } = await client.from("audit_logs").insert({

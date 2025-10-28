@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { Database } from "../types/db";
+
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
@@ -12,13 +14,10 @@ if (!supabaseServiceKey) {
   throw new Error("Missing SUPABASE_SERVICE_KEY environment variable");
 }
 
-export const supabaseAdminClient: SupabaseClient = createClient(
-  supabaseUrl,
-  supabaseServiceKey,
-  {
+export const supabaseAdminClient: SupabaseClient<Database> =
+  createClient<Database>(supabaseUrl, supabaseServiceKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
     },
-  },
-);
+  });

@@ -8,7 +8,7 @@ export const createEntryHandler = async (c: Context<AppEnv>) => {
   const supabaseClient = c.get("supabaseClient");
   const user = c.get("supabaseUser");
 
-  const payload = await c.req.json();
+  const payload: unknown = await c.req.json();
   const parsed = createEntrySchema.safeParse(payload);
 
   if (!parsed.success) {

@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { recordAuditEvent } from "../services/audit";
 import type { AppEnv } from "../types/context";
-import { requestUnwrapSchema } from "../utils/validators";
+import { adminStatusSchema, requestUnwrapSchema } from "../utils/validators";
 
 export const listUsersHandler = async (c: Context<AppEnv>) => {
   const supabaseClient = c.get("supabaseClient");
@@ -23,7 +23,14 @@ export const suspendUserHandler = async (c: Context<AppEnv>) => {
   const supabaseClient = c.get("supabaseClient");
   const adminUser = c.get("supabaseUser");
   const targetUserId = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+  const rawBody: unknown = await c.req.json().catch(() => ({}));
+  const parsedBody = adminStatusSchema.safeParse(rawBody);
+
+  if (!parsedBody.success) {
+    throw new HTTPException(400, { message: "Invalid request body" });
+  }
+
+  const reason = parsedBody.data.reason ?? "unspecified";
 
   const { data, error } = await supabaseClient
     .from("profiles")
@@ -44,7 +51,7 @@ export const suspendUserHandler = async (c: Context<AppEnv>) => {
     actor_id: adminUser.id,
     target_user_id: targetUserId,
     action: "admin.suspend_user",
-    details: { reason: body.reason ?? "unspecified" },
+    details: { reason },
   });
 
   return c.json({ user: data, message: "User suspended" });
@@ -83,7 +90,7 @@ export const reactivateUserHandler = async (c: Context<AppEnv>) => {
 export const requestUnwrapHandler = async (c: Context<AppEnv>) => {
   const supabaseClient = c.get("supabaseClient");
   const adminUser = c.get("supabaseUser");
-  const payload = await c.req.json();
+  const payload: unknown = await c.req.json();
 
   const parsed = requestUnwrapSchema.safeParse(payload);
   if (!parsed.success) {
