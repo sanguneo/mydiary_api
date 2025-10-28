@@ -10,7 +10,7 @@
     "framework": "Hono",
     "database": "Supabase (Postgres)",
     "auth": "Supabase Auth (client) + token validation on server",
-    "encryption": "Client-side AES-GCM for entry text; server assists wrap/unwrap via KMS or dev wrap key",
+    "encryption": "Client-side AES-GCM for entry text; server provides wrap/unwrap helper using SERVER_WRAP_KEY (no external KMS).",
     "language": "TypeScript",
     "other_libs": [
       "@supabase/supabase-js",
@@ -20,7 +20,7 @@
       "dotenv",
       "zod"
     ],
-    "recommended_kms": "AWS KMS (or HashiCorp Vault Transit). Dev fallback: SERVER_WRAP_KEY env value."
+    "key_management": "Server-side wrapping using SERVER_WRAP_KEY (dev). In production store keys in a secure secrets manager and enforce rotation."
   },
   "project_structure": {
     "root": [
@@ -42,8 +42,8 @@
       "routes/": "Hono route declarations (public + protected + admin)",
       "middleware/": "auth middleware (validate via supabase /auth/v1/user), admin middleware (check admin_roles)",
       "services/": {
-        "supabaseClient.ts": "initialize supabase client with service_role key",
-        "crypto.ts": "wrap/unwrap helpers (DEV and KMS adapter hooks)",
+        "supabaseClient.ts": "initialize supabase client with service_role key (read from Codex environment variables)",
+        "crypto.ts": "wrap/unwrap helpers using SERVER_WRAP_KEY (AES-GCM) and client-side AES helpers; KMS adapters removed",
         "audit.ts": "audit log helper"
       },
       "types/": "shared TypeScript types (User, Entry, Profile, ApiResponse)",
@@ -51,15 +51,16 @@
     }
   },
   "environment": {
+    "note": "Codex has been configured with the required environment variables — the server reads these from the process environment. Do not store service_role or secret values in client code or in repo.",
     "required": [
       "SUPABASE_URL",
       "SUPABASE_ANON_KEY",
       "SUPABASE_SERVICE_KEY",
-      "SERVER_WRAP_KEY (base64 32 bytes) - DEV ONLY",
-      "JWT_SECRET (for optional server JWT signing)",
+      "SUPABASE_JWT_SECRET (optional, if verifying locally)",
+      "SERVER_WRAP_KEY (base64 32 bytes) - used for server-side wrapping/unwrapping when not using external KMS",
       "PORT (default 3000)"
     ],
-    "notes": "Do NOT place SUPABASE_SERVICE_KEY in client code. Use .env for local dev and secrets manager in production. Replace SERVER_WRAP_KEY with KMS in production."
+    "usage": "The code must read secrets from process.env (Codex-provided env). Example: process.env.SUPABASE_SERVICE_KEY. .env files are only for local testing; in your Codex-hosted environment variables are already set."
   },
   "migrations": [
     {
@@ -80,16 +81,9 @@
         "method": "POST",
         "path": "/api/init",
         "auth": "Bearer token (supabase access_token)",
-        "description": "Initialize server-side profile record and create wrapped account master key (DEV wrapping). For PROD this should call KMS.",
-        "request": {
-          "body": {}
-        },
-        "response": {
-          "200": {
-            "ok": true,
-            "message": "initialized"
-          }
-        }
+        "description": "Initialize server-side profile record and create account_key_meta. Server will generate account master key and wrap it using SERVER_WRAP_KEY (no external KMS).",
+        "request": { "body": {} },
+        "response": { "200": { "ok": true, "message": "initialized" } }
       },
       {
         "id": "list_entries_by_date",
@@ -116,7 +110,7 @@
         "method": "POST",
         "path": "/api/entries",
         "auth": "Bearer token",
-        "description": "Create new encrypted entry. Client sends ciphertext, iv, and wrapped_entry_key (or server wraps client-provided entry_key).",
+        "description": "Create new encrypted entry. Client sends ciphertext, iv, and wrapped_entry_key (server-side wrap using SERVER_WRAP_KEY is available via /api/keys/wrap).",
         "request": {
           "body": {
             "entry_date": "YYYY-MM-DD",
@@ -125,18 +119,10 @@
             "iv": "base64 string",
             "wrapped_entry_key": "base64 string (optional)",
             "is_locked": "boolean",
-            "meta": {
-              "emotion": "😀",
-              "tags": []
-            }
+            "meta": { "emotion": "😀", "tags": [] }
           }
         },
-        "response": {
-          "201": {
-            "ok": true,
-            "id": "<entry id>"
-          }
-        }
+        "response": { "201": { "ok": true, "id": "<entry id>" } }
       },
       {
         "id": "get_entry",
@@ -160,17 +146,9 @@
         "method": "POST",
         "path": "/api/keys/wrap",
         "auth": "Bearer token",
-        "description": "DEV only: wraps a base64 entry_key with server wrap key and returns wrapped blob. PROD: this invokes KMS GenerateDataKey or Encrypt.",
-        "request": {
-          "body": {
-            "entry_key_base64": "..."
-          }
-        },
-        "response": {
-          "200": {
-            "wrapped_key_base64": "..."
-          }
-        }
+        "description": "Wraps a base64 entry_key using SERVER_WRAP_KEY (server-side AES-GCM wrap). This endpoint is the production wrapping flow in the current no-KMS setup. The server returns a wrapped_key_base64 that the client stores alongside ciphertext.",
+        "request": { "body": { "entry_key_base64": "..." } },
+        "response": { "200": { "wrapped_key_base64": "..." } }
       },
       {
         "id": "admin_list_users",
@@ -178,18 +156,7 @@
         "path": "/api/admin/users?page=1&limit=50",
         "auth": "Bearer token (admin user)",
         "description": "Admin-only: returns user list with limited profile fields (id, email, created_at, is_disabled, settings).",
-        "response": {
-          "200": {
-            "users": [
-              {
-                "id": "...",
-                "email": "...",
-                "is_disabled": false,
-                "created_at": "..."
-              }
-            ]
-          }
-        }
+        "response": { "200": { "users": [ { "id": "...", "email": "...", "is_disabled": false, "created_at": "..." } ] } }
       },
       {
         "id": "admin_suspend_user",
@@ -197,16 +164,8 @@
         "path": "/api/admin/users/:id/suspend",
         "auth": "Bearer token (admin)",
         "description": "Suspends user (sets profiles.is_disabled true) and writes audit log.",
-        "request": {
-          "body": {
-            "reason": "support_reason"
-          }
-        },
-        "response": {
-          "200": {
-            "ok": true
-          }
-        }
+        "request": { "body": { "reason": "support_reason" } },
+        "response": { "200": { "ok": true } }
       },
       {
         "id": "admin_get_user_entries_meta",
@@ -214,38 +173,16 @@
         "path": "/api/admin/users/:id/entries?date=YYYY-MM-DD",
         "auth": "Bearer token (admin)",
         "description": "Admin-only: returns entries metadata for a user on a date; ciphertext is not returned by default.",
-        "response": {
-          "200": {
-            "entries": [
-              {
-                "id": "...",
-                "entry_date": "...",
-                "entry_time": "...",
-                "is_locked": true
-              }
-            ]
-          }
-        }
+        "response": { "200": { "entries": [ { "id": "...", "entry_date": "...", "entry_time": "...", "is_locked": true } ] } }
       },
       {
         "id": "admin_request_unwrap",
         "method": "POST",
         "path": "/api/admin/request-unwrap",
         "auth": "Bearer token (admin)",
-        "description": "Admin may request a key unwrap for support/legal purpose. This endpoint inserts an audit log record and initiates controlled unwrap workflow. DO NOT return plaintext automatically.",
-        "request": {
-          "body": {
-            "user_id": "...",
-            "entry_id": "...",
-            "reason": "..."
-          }
-        },
-        "response": {
-          "200": {
-            "ok": true,
-            "message": "audit created, follow-up required"
-          }
-        }
+        "description": "Admin may request a key unwrap for support/legal purpose. This endpoint inserts an audit log record and initiates a controlled unwrap workflow. DO NOT return plaintext automatically; unwrap requires explicit manual approval and must be logged.",
+        "request": { "body": { "user_id": "...", "entry_id": "...", "reason": "..." } },
+        "response": { "200": { "ok": true, "message": "audit created, follow-up required" } }
       }
     ]
   },
@@ -261,10 +198,7 @@
         "request": {
           "method": "GET",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{access_token}}"
-            }
+            { "key": "Authorization", "value": "Bearer {{access_token}}" }
           ],
           "url": "{{supabase_url}}/auth/v1/user"
         }
@@ -274,14 +208,8 @@
         "request": {
           "method": "POST",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{access_token}}"
-            },
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
+            { "key": "Authorization", "value": "Bearer {{access_token}}" },
+            { "key": "Content-Type", "value": "application/json" }
           ],
           "body": {
             "mode": "raw",
@@ -295,10 +223,7 @@
         "request": {
           "method": "GET",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{access_token}}"
-            }
+            { "key": "Authorization", "value": "Bearer {{access_token}}" }
           ],
           "url": "{{base_url}}/api/entries?date={{date}}"
         }
@@ -308,14 +233,8 @@
         "request": {
           "method": "POST",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{access_token}}"
-            },
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
+            { "key": "Authorization", "value": "Bearer {{access_token}}" },
+            { "key": "Content-Type", "value": "application/json" }
           ],
           "body": {
             "mode": "raw",
@@ -329,10 +248,7 @@
         "request": {
           "method": "GET",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{access_token}}"
-            }
+            { "key": "Authorization", "value": "Bearer {{access_token}}" }
           ],
           "url": "{{base_url}}/api/entries/{{entry_id}}"
         }
@@ -342,10 +258,7 @@
         "request": {
           "method": "GET",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{admin_access_token}}"
-            }
+            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" }
           ],
           "url": "{{base_url}}/api/admin/users"
         }
@@ -355,14 +268,8 @@
         "request": {
           "method": "POST",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{admin_access_token}}"
-            },
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
+            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" },
+            { "key": "Content-Type", "value": "application/json" }
           ],
           "body": {
             "mode": "raw",
@@ -376,14 +283,8 @@
         "request": {
           "method": "POST",
           "header": [
-            {
-              "key": "Authorization",
-              "value": "Bearer {{admin_access_token}}"
-            },
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
+            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" },
+            { "key": "Content-Type", "value": "application/json" }
           ],
           "body": {
             "mode": "raw",
@@ -394,101 +295,27 @@
       }
     ],
     "variable": [
-      {
-        "key": "base_url",
-        "value": "http://localhost:3000"
-      },
-      {
-        "key": "supabase_url",
-        "value": "https://your-supabase-url.supabase.co"
-      },
-      {
-        "key": "access_token",
-        "value": ""
-      },
-      {
-        "key": "admin_access_token",
-        "value": ""
-      },
-      {
-        "key": "date",
-        "value": "2025-10-28"
-      },
-      {
-        "key": "entry_id",
-        "value": ""
-      },
-      {
-        "key": "target_user_id",
-        "value": ""
-      },
-      {
-        "key": "target_entry_id",
-        "value": ""
-      }
+      { "key": "base_url", "value": "http://localhost:3000" },
+      { "key": "supabase_url", "value": "https://your-supabase-url.supabase.co" },
+      { "key": "access_token", "value": "" },
+      { "key": "admin_access_token", "value": "" },
+      { "key": "date", "value": "2025-10-28" },
+      { "key": "entry_id", "value": "" },
+      { "key": "target_user_id", "value": "" },
+      { "key": "target_entry_id", "value": "" }
     ]
   },
   "tasks": [
-    {
-      "id": 1,
-      "title": "Repo scaffold & basic Bun+Hono app",
-      "description": "Create TypeScript Bun project with Hono app, basic route mount, .env.example, tsconfig, README. Add scripts: start, dev, migrate.",
-      "estimate": "1 day"
-    },
-    {
-      "id": 2,
-      "title": "Supabase client & auth middleware",
-      "description": "Implement supabase client (service role key) and auth middleware that validates incoming Bearer token via SUPABASE /auth/v1/user. Attach supabaseUser to context.",
-      "estimate": "0.5 day"
-    },
-    {
-      "id": 3,
-      "title": "DB migrations & RLS",
-      "description": "Add migrations folder with SQL files (above). Provide migration script or instructions for Supabase SQL editor.",
-      "estimate": "0.5 day"
-    },
-    {
-      "id": 4,
-      "title": "Profile init endpoint (/api/init)",
-      "description": "Create endpoint that checks profiles table and creates wrapped master key (DEV wrapping) and stores account_key_meta. For PROD, stub KMS integration.",
-      "estimate": "0.5 day"
-    },
-    {
-      "id": 5,
-      "title": "Entries CRUD (create/list/get)",
-      "description": "Implement entries endpoints: create (store ciphertext/wrapped key), list by date (metadata only), get by id (ciphertext + wrapped blob). Enforce RLS and server-side checks.",
-      "estimate": "1 day"
-    },
-    {
-      "id": 6,
-      "title": "Wrap/Unwrap service (DEV & KMS adapter)",
-      "description": "Implement dev wrap (AES-GCM with SERVER_WRAP_KEY) and KMS adapter interface (AWS KMS example). Keep KMS calls behind feature flag.",
-      "estimate": "1 day"
-    },
-    {
-      "id": 7,
-      "title": "Admin endpoints & audit logs",
-      "description": "Admin list users, suspend/reactivate, list user entries metadata, request-unwrap endpoint that logs the request into audit_logs. Implement admin middleware checking admin_roles.",
-      "estimate": "1 day"
-    },
-    {
-      "id": 8,
-      "title": "Postman collection & README",
-      "description": "Add generated Postman collection JSON to /postman/collection.json and a README section documenting how to run and test with Postman. Include environment variables and example tokens.",
-      "estimate": "0.5 day"
-    },
-    {
-      "id": 9,
-      "title": "Tests & CI",
-      "description": "Unit tests for middleware, route handlers, and a basic integration test (mocked supabase or test project). Add GitHub Actions workflow to run lint and tests.",
-      "estimate": "1 day"
-    },
-    {
-      "id": 10,
-      "title": "Hardening & deployment docs",
-      "description": "Document KMS integration steps, production env variables, hosting options for Bun (e.g., VPS or Bun Cloud), and database backup strategy.",
-      "estimate": "1 day"
-    }
+    { "id": 1, "title": "Repo scaffold & basic Bun+Hono app", "description": "Create TypeScript Bun project with Hono app, basic route mount, .env.example, tsconfig, README. Add scripts: start, dev, migrate.", "estimate": "1 day" },
+    { "id": 2, "title": "Supabase client & auth middleware", "description": "Implement supabase client (service role key) and auth middleware that validates incoming Bearer token via SUPABASE /auth/v1/user. Attach supabaseUser to context.", "estimate": "0.5 day" },
+    { "id": 3, "title": "DB migrations & RLS", "description": "Add migrations folder with SQL files (above). Provide migration script or instructions for Supabase SQL editor.", "estimate": "0.5 day" },
+    { "id": 4, "title": "Profile init endpoint (/api/init)", "description": "Create endpoint that checks profiles table and creates wrapped master key using SERVER_WRAP_KEY and stores account_key_meta. For production ensure secret is in Codex environment manager.", "estimate": "0.5 day" },
+    { "id": 5, "title": "Entries CRUD (create/list/get)", "description": "Implement entries endpoints: create (store ciphertext/wrapped key), list by date (metadata only), get by id (ciphertext + wrapped blob). Enforce RLS and server-side checks.", "estimate": "1 day" },
+    { "id": 6, "title": "Wrap/Unwrap service (SERVER_WRAP_KEY)", "description": "Implement server wrap (AES-GCM with SERVER_WRAP_KEY) and secure unwrap helper. Keep wrapping centralized on server and logged.", "estimate": "1 day" },
+    { "id": 7, "title": "Admin endpoints & audit logs", "description": "Admin list users, suspend/reactivate, list user entries metadata, request-unwrap endpoint that logs the request into audit_logs. Implement admin middleware checking admin_roles.", "estimate": "1 day" },
+    { "id": 8, "title": "Postman collection & README", "description": "Add generated Postman collection JSON to /postman/collection.json and a README section documenting how to run and test with Postman. Include environment variables and example tokens.", "estimate": "0.5 day" },
+    { "id": 9, "title": "Tests & CI", "description": "Unit tests for middleware, route handlers, and a basic integration test (mocked supabase or test project). Add GitHub Actions workflow to run lint and tests.", "estimate": "1 day" },
+    { "id": 10, "title": "Hardening & deployment docs", "description": "Document secret management, production env variables, hosting options for Bun (e.g., VPS or Bun Cloud), and database backup strategy.", "estimate": "1 day" }
   ],
   "deliverables": [
     "Git repository with full project scaffold and TypeScript source",
@@ -497,13 +324,13 @@
     "postman/collection.json (Postman v2.1 compatible) in project root",
     "CI workflow (github actions) to run lint & tests",
     "example .env.example and instructions to generate SERVER_WRAP_KEY",
-    "documentation for KMS integration (AWS KMS example)"
+    "documentation for production secret management"
   ],
   "security_and_operational_notes": {
-    "production_replacements": [
-      "Replace SERVER_WRAP_KEY dev wrap with KMS/HashiCorp Vault.",
-      "Store SUPABASE_SERVICE_KEY in secret manager; never expose to client.",
-      "Enable Cloud / infra-level logging and alerting for unwrap operations."
+    "production_recommendations": [
+      "Do NOT store SUPABASE_SERVICE_KEY in client or committed files; use Codex environment variables or a secure secret store.",
+      "Use SERVER_WRAP_KEY only as an interim approach. For higher assurance, store wrapping keys in a strong secrets manager accessible only to the server runtime.",
+      "Rotate SERVER_WRAP_KEY regularly and record key rotation events."
     ],
     "audit_requirements": [
       "Every admin action that affects user data or keys must create an audit_logs entry.",
@@ -511,8 +338,8 @@
     ],
     "privacy_notes": [
       "By default, admin endpoints return metadata only (no plaintext).",
-      "If plaintext is required, require documented case and manual unwrap flow with audit and approval."
+      "Plaintext unwrapping must be manual, approved, and logged with justification."
     ]
   },
-  "notes_for_contributor": "This JSON is intended to be used as a repository creation & implementation brief. Implementers should follow the specified RLS policies, never expose service_role key to clients, and replace dev wrapping with KMS before production. After repository is created, run migrations in Supabase SQL editor, set environment variables, and import the Postman collection for API testing."
+  "notes_for_contributor": "This JSON is intended to be used as a repository creation & implementation brief. Implementers should follow the specified RLS policies, never expose service_role key to clients, and use the Codex-provided environment variables for secrets. Replace SERVER_WRAP_KEY practice with a formal secret management approach when scaling to production."
 }
