@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "allowJs": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["bun-types"],
+    "baseUrl": "./",
+    "paths": {
+      "@controllers/*": ["src/controllers/*"],
+      "@routes/*": ["src/routes/*"],
+      "@middleware/*": ["src/middleware/*"],
+      "@services/*": ["src/services/*"],
+      "@types/*": ["src/types/*"],
+      "@utils/*": ["src/utils/*"]
+    }
+  },
+  "include": ["src", "scripts", "test"],
+  "exclude": ["node_modules"]
+}

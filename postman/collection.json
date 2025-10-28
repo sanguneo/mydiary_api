@@ -1,0 +1,208 @@
+{
+  "info": {
+    "name": "Private Emotion Diary API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for Private Emotion Diary Bun + Hono API"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/health",
+          "host": ["{{base_url}}"],
+          "path": ["api", "health"]
+        }
+      }
+    },
+    {
+      "name": "Init Profile",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/init",
+          "host": ["{{base_url}}"],
+          "path": ["api", "init"]
+        }
+      }
+    },
+    {
+      "name": "List Entries",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/entries?date={{date}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "entries"],
+          "query": [
+            {
+              "key": "date",
+              "value": "{{date}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Entry",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entryDate\": \"{{date}}\",\n  \"ciphertext\": \"<ciphertext>\",\n  \"iv\": \"<iv>\",\n  \"wrappedEntryKey\": \"<wrapped>\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/entries",
+          "host": ["{{base_url}}"],
+          "path": ["api", "entries"]
+        }
+      }
+    },
+    {
+      "name": "Get Entry",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/entries/{{entry_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "entries", "{{entry_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Admin List Users",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{admin_access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/users",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "users"]
+        }
+      }
+    },
+    {
+      "name": "Admin Suspend User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{admin_access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"spam\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/admin/users/{{target_user_id}}/suspend",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "users", "{{target_user_id}}", "suspend"]
+        }
+      }
+    },
+    {
+      "name": "Admin Reactivate User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{admin_access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/admin/users/{{target_user_id}}/reactivate",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "users", "{{target_user_id}}", "reactivate"]
+        }
+      }
+    },
+    {
+      "name": "Admin Request Unwrap",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{admin_access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{target_user_id}}\",\n  \"entry_id\": \"{{target_entry_id}}\",\n  \"reason\": \"legal request\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/admin/request-unwrap",
+          "host": ["{{base_url}}"],
+          "path": ["api", "admin", "request-unwrap"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000" },
+    {
+      "key": "supabase_url",
+      "value": "https://your-supabase-project.supabase.co"
+    },
+    { "key": "access_token", "value": "" },
+    { "key": "admin_access_token", "value": "" },
+    { "key": "date", "value": "2025-10-28" },
+    { "key": "entry_id", "value": "" },
+    { "key": "target_user_id", "value": "" },
+    { "key": "target_entry_id", "value": "" }
+  ]
+}

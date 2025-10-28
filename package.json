@@ -1,0 +1,38 @@
+{
+  "name": "diary-backend-bun-hono-supabase",
+  "version": "0.1.0",
+  "description": "Backend for Private Emotion Diary - Bun + Hono API with Supabase auth and Postgres.",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "lint": "bunx eslint .",
+    "migrate": "bun run scripts/run-migrations.ts"
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "hono": "^4.5.9",
+    "jose": "^5.2.4",
+    "nanoid": "^5.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.12.7",
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0",
+    "bun-types": "^1.1.12",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jsdoc": "^48.1.0",
+    "eslint-plugin-prettier": "^5.1.3",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5"
+  }
+}
