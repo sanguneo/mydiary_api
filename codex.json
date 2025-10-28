@@ -1,0 +1,518 @@
+{
+  "repo": {
+    "name": "diary-backend-bun-hono-supabase",
+    "description": "Backend for Private Emotion Diary - Bun + Hono API with Supabase (Auth + Postgres). Includes user profiles, encrypted entries, admin console APIs, audit logging, RLS policies, and Postman collection for testing.",
+    "visibility": "private",
+    "license": "MIT"
+  },
+  "tech_stack": {
+    "runtime": "Bun",
+    "framework": "Hono",
+    "database": "Supabase (Postgres)",
+    "auth": "Supabase Auth (client) + token validation on server",
+    "encryption": "Client-side AES-GCM for entry text; server assists wrap/unwrap via KMS or dev wrap key",
+    "language": "TypeScript",
+    "other_libs": [
+      "@supabase/supabase-js",
+      "nanoid",
+      "bcryptjs",
+      "jose",
+      "dotenv",
+      "zod"
+    ],
+    "recommended_kms": "AWS KMS (or HashiCorp Vault Transit). Dev fallback: SERVER_WRAP_KEY env value."
+  },
+  "project_structure": {
+    "root": [
+      "package.json",
+      "bun.lockb",
+      "tsconfig.json",
+      ".env.example",
+      "README.md",
+      "src/",
+      "migrations/",
+      "scripts/",
+      "postman/",
+      "test/"
+    ],
+    "src": {
+      "index.ts": "start server (bun serve) - loads app.fetch from app.ts",
+      "app.ts": "Hono app, route mounting",
+      "controllers/": "business logic per resource (authInit, entries, admin)",
+      "routes/": "Hono route declarations (public + protected + admin)",
+      "middleware/": "auth middleware (validate via supabase /auth/v1/user), admin middleware (check admin_roles)",
+      "services/": {
+        "supabaseClient.ts": "initialize supabase client with service_role key",
+        "crypto.ts": "wrap/unwrap helpers (DEV and KMS adapter hooks)",
+        "audit.ts": "audit log helper"
+      },
+      "types/": "shared TypeScript types (User, Entry, Profile, ApiResponse)",
+      "utils/": "helpers (date mapping for 1yr/2yr mapping, validation)"
+    }
+  },
+  "environment": {
+    "required": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_KEY",
+      "SERVER_WRAP_KEY (base64 32 bytes) - DEV ONLY",
+      "JWT_SECRET (for optional server JWT signing)",
+      "PORT (default 3000)"
+    ],
+    "notes": "Do NOT place SUPABASE_SERVICE_KEY in client code. Use .env for local dev and secrets manager in production. Replace SERVER_WRAP_KEY with KMS in production."
+  },
+  "migrations": [
+    {
+      "filename": "001_create_extensions_and_core_tables.sql",
+      "content": "-- create extension and core tables\ncreate extension if not exists \"pgcrypto\";\n\n-- profiles: additional user metadata for auth.users\ncreate table if not exists profiles (\n  id uuid primary key references auth.users (id) on delete cascade,\n  email text,\n  account_key_meta jsonb,\n  settings jsonb default '{}'::jsonb,\n  is_disabled boolean default false,\n  created_at timestamptz default now(),\n  updated_at timestamptz default now()\n);\n\n-- entries : encrypted diary entries\ncreate table if not exists entries (\n  id uuid primary key default gen_random_uuid(),\n  user_id uuid references auth.users (id) on delete cascade,\n  created_at timestamptz default now(),\n  updated_at timestamptz default now(),\n  entry_date date not null,\n  entry_time time,\n  is_locked boolean default false,\n  ciphertext text not null,\n  iv text not null,\n  wrapped_entry_key text,\n  meta jsonb,\n  constraint entries_user_date_unique unique (user_id, id)\n);\n\ncreate index if not exists idx_entries_user_date on entries (user_id, entry_date);\n\n-- admin_roles\ncreate table if not exists admin_roles (\n  user_id uuid references auth.users(id),\n  role text,\n  created_at timestamptz default now(),\n  primary key (user_id)\n);\n\n-- audit_logs\ncreate table if not exists audit_logs (\n  id uuid primary key default gen_random_uuid(),\n  actor_id uuid,\n  target_user_id uuid,\n  action text,\n  details jsonb,\n  created_at timestamptz default now()\n);\n\ncreate index if not exists idx_audit_actor on audit_logs(actor_id);\ncreate index if not exists idx_audit_target on audit_logs(target_user_id);\n"
+    },
+    {
+      "filename": "002_rls_and_policies.sql",
+      "content": "-- Enable RLS and create policies\nalter table profiles enable row level security;\nalter table entries enable row level security;\nalter table audit_logs enable row level security;\n\n-- profiles owner: users can manage their own profile\ncreate policy profiles_owner on profiles\n  for all\n  using ( auth.uid() = id )\n  with check ( auth.uid() = id );\n\n-- entries owner: users can manage their own entries\ncreate policy entries_owner on entries\n  for all\n  using ( auth.uid() = user_id )\n  with check ( auth.uid() = user_id );\n\n-- allow admin to view profiles (select only)\ncreate policy profiles_admin on profiles\n  for select\n  using ( exists (select 1 from admin_roles ar where ar.user_id = auth.uid()) );\n\n-- audit_logs: only admin can read/write\ncreate policy audit_admin_only on audit_logs\n  for all\n  using ( exists (select 1 from admin_roles ar where ar.user_id = auth.uid()) );\n"
+    }
+  ],
+  "api_spec": {
+    "base_url": "https://<YOUR_SERVER_HOST>:<PORT>/api",
+    "auth": "Supabase Auth token — Authorization: Bearer <access_token> (server validates via /auth/v1/user or local JWT verification if configured)",
+    "endpoints": [
+      {
+        "id": "init_profile",
+        "method": "POST",
+        "path": "/api/init",
+        "auth": "Bearer token (supabase access_token)",
+        "description": "Initialize server-side profile record and create wrapped account master key (DEV wrapping). For PROD this should call KMS.",
+        "request": {
+          "body": {}
+        },
+        "response": {
+          "200": {
+            "ok": true,
+            "message": "initialized"
+          }
+        }
+      },
+      {
+        "id": "list_entries_by_date",
+        "method": "GET",
+        "path": "/api/entries?date=YYYY-MM-DD",
+        "auth": "Bearer token",
+        "description": "Returns entries metadata (no plaintext) for the date. RLS ensures user sees only own rows.",
+        "response": {
+          "200": {
+            "entries": [
+              {
+                "id": "<uuid>",
+                "entry_date": "YYYY-MM-DD",
+                "entry_time": "HH:MM",
+                "is_locked": true,
+                "meta": {}
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "create_entry",
+        "method": "POST",
+        "path": "/api/entries",
+        "auth": "Bearer token",
+        "description": "Create new encrypted entry. Client sends ciphertext, iv, and wrapped_entry_key (or server wraps client-provided entry_key).",
+        "request": {
+          "body": {
+            "entry_date": "YYYY-MM-DD",
+            "entry_time": "HH:MM",
+            "ciphertext": "base64 string",
+            "iv": "base64 string",
+            "wrapped_entry_key": "base64 string (optional)",
+            "is_locked": "boolean",
+            "meta": {
+              "emotion": "😀",
+              "tags": []
+            }
+          }
+        },
+        "response": {
+          "201": {
+            "ok": true,
+            "id": "<entry id>"
+          }
+        }
+      },
+      {
+        "id": "get_entry",
+        "method": "GET",
+        "path": "/api/entries/:id",
+        "auth": "Bearer token",
+        "description": "Returns ciphertext, iv, wrapped_entry_key, meta, is_locked. Server does NOT return plaintext.",
+        "response": {
+          "200": {
+            "id": "<uuid>",
+            "ciphertext": "...",
+            "iv": "...",
+            "wrapped_entry_key": "...",
+            "is_locked": true,
+            "meta": {}
+          }
+        }
+      },
+      {
+        "id": "wrap_entry_key",
+        "method": "POST",
+        "path": "/api/keys/wrap",
+        "auth": "Bearer token",
+        "description": "DEV only: wraps a base64 entry_key with server wrap key and returns wrapped blob. PROD: this invokes KMS GenerateDataKey or Encrypt.",
+        "request": {
+          "body": {
+            "entry_key_base64": "..."
+          }
+        },
+        "response": {
+          "200": {
+            "wrapped_key_base64": "..."
+          }
+        }
+      },
+      {
+        "id": "admin_list_users",
+        "method": "GET",
+        "path": "/api/admin/users?page=1&limit=50",
+        "auth": "Bearer token (admin user)",
+        "description": "Admin-only: returns user list with limited profile fields (id, email, created_at, is_disabled, settings).",
+        "response": {
+          "200": {
+            "users": [
+              {
+                "id": "...",
+                "email": "...",
+                "is_disabled": false,
+                "created_at": "..."
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "admin_suspend_user",
+        "method": "POST",
+        "path": "/api/admin/users/:id/suspend",
+        "auth": "Bearer token (admin)",
+        "description": "Suspends user (sets profiles.is_disabled true) and writes audit log.",
+        "request": {
+          "body": {
+            "reason": "support_reason"
+          }
+        },
+        "response": {
+          "200": {
+            "ok": true
+          }
+        }
+      },
+      {
+        "id": "admin_get_user_entries_meta",
+        "method": "GET",
+        "path": "/api/admin/users/:id/entries?date=YYYY-MM-DD",
+        "auth": "Bearer token (admin)",
+        "description": "Admin-only: returns entries metadata for a user on a date; ciphertext is not returned by default.",
+        "response": {
+          "200": {
+            "entries": [
+              {
+                "id": "...",
+                "entry_date": "...",
+                "entry_time": "...",
+                "is_locked": true
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "admin_request_unwrap",
+        "method": "POST",
+        "path": "/api/admin/request-unwrap",
+        "auth": "Bearer token (admin)",
+        "description": "Admin may request a key unwrap for support/legal purpose. This endpoint inserts an audit log record and initiates controlled unwrap workflow. DO NOT return plaintext automatically.",
+        "request": {
+          "body": {
+            "user_id": "...",
+            "entry_id": "...",
+            "reason": "..."
+          }
+        },
+        "response": {
+          "200": {
+            "ok": true,
+            "message": "audit created, follow-up required"
+          }
+        }
+      }
+    ]
+  },
+  "postman_collection": {
+    "info": {
+      "name": "Diary Backend - Bun+Hono - Postman Collection",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+      "description": "Collection for testing auth/init/entries/admin endpoints. Replace {{base_url}} and set Authorization header with Supabase access_token."
+    },
+    "item": [
+      {
+        "name": "Get Supabase User (token verify)",
+        "request": {
+          "method": "GET",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{access_token}}"
+            }
+          ],
+          "url": "{{supabase_url}}/auth/v1/user"
+        }
+      },
+      {
+        "name": "POST /api/init (init profile)",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{access_token}}"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{}"
+          },
+          "url": "{{base_url}}/api/init"
+        }
+      },
+      {
+        "name": "GET /api/entries?date=YYYY-MM-DD",
+        "request": {
+          "method": "GET",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{access_token}}"
+            }
+          ],
+          "url": "{{base_url}}/api/entries?date={{date}}"
+        }
+      },
+      {
+        "name": "POST /api/entries (create encrypted entry)",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{access_token}}"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{\n  \"entry_date\": \"2025-10-28\",\n  \"entry_time\": \"09:13\",\n  \"ciphertext\": \"<base64Ciphertext>\",\n  \"iv\": \"<base64IV>\",\n  \"wrapped_entry_key\": \"<base64WrappedKey>\",\n  \"is_locked\": false,\n  \"meta\": { \"emotion\": \"😀\" }\n}"
+          },
+          "url": "{{base_url}}/api/entries"
+        }
+      },
+      {
+        "name": "GET /api/entries/:id",
+        "request": {
+          "method": "GET",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{access_token}}"
+            }
+          ],
+          "url": "{{base_url}}/api/entries/{{entry_id}}"
+        }
+      },
+      {
+        "name": "Admin: GET /api/admin/users",
+        "request": {
+          "method": "GET",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{admin_access_token}}"
+            }
+          ],
+          "url": "{{base_url}}/api/admin/users"
+        }
+      },
+      {
+        "name": "Admin: POST /api/admin/users/:id/suspend",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{admin_access_token}}"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{\n  \"reason\": \"support - spam\"\n}"
+          },
+          "url": "{{base_url}}/api/admin/users/{{target_user_id}}/suspend"
+        }
+      },
+      {
+        "name": "Admin: POST /api/admin/request-unwrap",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{admin_access_token}}"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{\n  \"user_id\": \"{{target_user_id}}\",\n  \"entry_id\": \"{{target_entry_id}}\",\n  \"reason\": \"legal request\"\n}"
+          },
+          "url": "{{base_url}}/api/admin/request-unwrap"
+        }
+      }
+    ],
+    "variable": [
+      {
+        "key": "base_url",
+        "value": "http://localhost:3000"
+      },
+      {
+        "key": "supabase_url",
+        "value": "https://your-supabase-url.supabase.co"
+      },
+      {
+        "key": "access_token",
+        "value": ""
+      },
+      {
+        "key": "admin_access_token",
+        "value": ""
+      },
+      {
+        "key": "date",
+        "value": "2025-10-28"
+      },
+      {
+        "key": "entry_id",
+        "value": ""
+      },
+      {
+        "key": "target_user_id",
+        "value": ""
+      },
+      {
+        "key": "target_entry_id",
+        "value": ""
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Repo scaffold & basic Bun+Hono app",
+      "description": "Create TypeScript Bun project with Hono app, basic route mount, .env.example, tsconfig, README. Add scripts: start, dev, migrate.",
+      "estimate": "1 day"
+    },
+    {
+      "id": 2,
+      "title": "Supabase client & auth middleware",
+      "description": "Implement supabase client (service role key) and auth middleware that validates incoming Bearer token via SUPABASE /auth/v1/user. Attach supabaseUser to context.",
+      "estimate": "0.5 day"
+    },
+    {
+      "id": 3,
+      "title": "DB migrations & RLS",
+      "description": "Add migrations folder with SQL files (above). Provide migration script or instructions for Supabase SQL editor.",
+      "estimate": "0.5 day"
+    },
+    {
+      "id": 4,
+      "title": "Profile init endpoint (/api/init)",
+      "description": "Create endpoint that checks profiles table and creates wrapped master key (DEV wrapping) and stores account_key_meta. For PROD, stub KMS integration.",
+      "estimate": "0.5 day"
+    },
+    {
+      "id": 5,
+      "title": "Entries CRUD (create/list/get)",
+      "description": "Implement entries endpoints: create (store ciphertext/wrapped key), list by date (metadata only), get by id (ciphertext + wrapped blob). Enforce RLS and server-side checks.",
+      "estimate": "1 day"
+    },
+    {
+      "id": 6,
+      "title": "Wrap/Unwrap service (DEV & KMS adapter)",
+      "description": "Implement dev wrap (AES-GCM with SERVER_WRAP_KEY) and KMS adapter interface (AWS KMS example). Keep KMS calls behind feature flag.",
+      "estimate": "1 day"
+    },
+    {
+      "id": 7,
+      "title": "Admin endpoints & audit logs",
+      "description": "Admin list users, suspend/reactivate, list user entries metadata, request-unwrap endpoint that logs the request into audit_logs. Implement admin middleware checking admin_roles.",
+      "estimate": "1 day"
+    },
+    {
+      "id": 8,
+      "title": "Postman collection & README",
+      "description": "Add generated Postman collection JSON to /postman/collection.json and a README section documenting how to run and test with Postman. Include environment variables and example tokens.",
+      "estimate": "0.5 day"
+    },
+    {
+      "id": 9,
+      "title": "Tests & CI",
+      "description": "Unit tests for middleware, route handlers, and a basic integration test (mocked supabase or test project). Add GitHub Actions workflow to run lint and tests.",
+      "estimate": "1 day"
+    },
+    {
+      "id": 10,
+      "title": "Hardening & deployment docs",
+      "description": "Document KMS integration steps, production env variables, hosting options for Bun (e.g., VPS or Bun Cloud), and database backup strategy.",
+      "estimate": "1 day"
+    }
+  ],
+  "deliverables": [
+    "Git repository with full project scaffold and TypeScript source",
+    "migrations SQL files in /migrations",
+    "README with quickstart and Postman testing steps",
+    "postman/collection.json (Postman v2.1 compatible) in project root",
+    "CI workflow (github actions) to run lint & tests",
+    "example .env.example and instructions to generate SERVER_WRAP_KEY",
+    "documentation for KMS integration (AWS KMS example)"
+  ],
+  "security_and_operational_notes": {
+    "production_replacements": [
+      "Replace SERVER_WRAP_KEY dev wrap with KMS/HashiCorp Vault.",
+      "Store SUPABASE_SERVICE_KEY in secret manager; never expose to client.",
+      "Enable Cloud / infra-level logging and alerting for unwrap operations."
+    ],
+    "audit_requirements": [
+      "Every admin action that affects user data or keys must create an audit_logs entry.",
+      "Audit logs must include actor_id, target_user_id, action, details, timestamp."
+    ],
+    "privacy_notes": [
+      "By default, admin endpoints return metadata only (no plaintext).",
+      "If plaintext is required, require documented case and manual unwrap flow with audit and approval."
+    ]
+  },
+  "notes_for_contributor": "This JSON is intended to be used as a repository creation & implementation brief. Implementers should follow the specified RLS policies, never expose service_role key to clients, and replace dev wrapping with KMS before production. After repository is created, run migrations in Supabase SQL editor, set environment variables, and import the Postman collection for API testing."
+}
