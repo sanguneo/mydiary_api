@@ -1,7 +1,9 @@
+// routes/auth.ts
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { supabase } from '../lib/supabase';
 import { authService } from '../services/auth-service';
-import { setAuthCookies } from '../lib/cookies';
+import { setAuthCookies, clearAuthCookies } from '../lib/cookies';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -15,15 +17,36 @@ authRouter.post('/signup', async (c) => {
   if (!parsed.success) {
     return c.json({ ok: false, message: 'Invalid payload', issues: parsed.error.flatten() }, 400);
   }
+
+  const { email } = parsed.data;
+
   try {
-    const userId = await authService.signUp(parsed.data.email);
-    return c.json({ ok: true, message: 'Signup initiated', user_id: userId });
+    const userId = await authService.signUp(email);
+
+    // ✅ 로그인 이메일(magic link) 발송 (계정 유무 상관없이)
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${process.env.BACKEND_ORIGIN ?? 'https://api.example.com'}/auth/verify`,
+        shouldCreateUser: true,
+      },
+    });
+    if (error) console.warn('signInWithOtp failed:', error);
+
+    // UX 목표: 메일 전송 여부와 관계없이 성공 응답
+    return c.json({
+      ok: true,
+      message: 'Verification email sent (if configured)',
+      user_id: userId ?? null,
+    });
   } catch (error) {
     console.error('Signup error', error);
-    return c.json({ ok: false, message: 'Failed to sign up' }, 500);
+    return c.json({ ok: false, message: 'Failed to send verification email' }, 500);
   }
 });
 
+
+// verify endpoint: 토큰 클릭 -> 토큰 발급, 쿠키 설정, 리다이렉트
 authRouter.get('/verify', async (c) => {
   const token = c.req.query('token');
   const email = c.req.query('email');
@@ -31,10 +54,20 @@ authRouter.get('/verify', async (c) => {
   if (!token || !email) {
     return c.json({ ok: false, message: 'Missing token or email' }, 400);
   }
+
   try {
-    const tokens = await authService.verifyEmail({ token, email, type });
+    const { tokens, needsDisplayName } = await authService.verifyEmail({ token, email, type });
+
+    // 쿠키 설정
     setAuthCookies(c, tokens);
-    return c.json({ ok: true, message: 'Email verified' });
+
+    // redirect UX: display_name 필요하면 온보딩으로, 아니면 루트로
+    const FRONTEND_URL = process.env.FRONTEND_URL ?? 'https://app.example.com';
+    if (needsDisplayName) {
+      const redirectUrl = `${FRONTEND_URL}/onboarding?display_name_required=1`;
+      return c.redirect(redirectUrl);
+    }
+    return c.redirect(FRONTEND_URL);
   } catch (error) {
     console.error('Verify error', error);
     return c.json({ ok: false, message: 'Failed to verify token' }, 400);
@@ -43,7 +76,8 @@ authRouter.get('/verify', async (c) => {
 
 authRouter.post('/refresh', async (c) => {
   try {
-    await authService.refreshSession(c);
+    const tokens = await authService.refreshSession(c);
+    setAuthCookies(c, tokens);
     return c.json({ ok: true, message: 'Session refreshed' });
   } catch (error) {
     console.error('Refresh error', error);
@@ -52,7 +86,13 @@ authRouter.post('/refresh', async (c) => {
 });
 
 authRouter.post('/logout', async (c) => {
-  await authService.logout(c);
+  try {
+    await authService.logout(c);
+  } catch (e) {
+    console.warn('Logout warning', e);
+  }
+  // clear cookies for client
+  clearAuthCookies(c);
   return c.json({ ok: true });
 });
 
