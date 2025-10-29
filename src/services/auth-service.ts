@@ -1,6 +1,5 @@
 // src/services/auth-service.ts
 import { supabase } from '../lib/supabase';
-import { clearAuthCookies, setAuthCookies } from '../lib/cookies';
 import {
   createAccessToken,
   createRefreshToken,
@@ -13,6 +12,7 @@ import { refreshTokenService } from './refresh-token-service';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { REFRESH_COOKIE_NAME } from '../lib/cookies';
+import { AppError } from '../lib/errors';
 
 export class AuthService {
   /**
@@ -34,13 +34,17 @@ export class AuthService {
       }
       const user = data.user;
       if (!user) {
-        throw new Error('User not created');
+        throw new AppError('Failed to create user for invitation', {
+          status: 500,
+          code: 'signup_invite_failed',
+        });
       }
       await profileService.ensureProfile(user.id, user.email);
       return user.id;
     } catch (inviteErr) {
       // invite 실패하더라도 UX 목표는 "메일을 보냈다"이므로 폴백으로 기존 사용자 확인/재전송 시도
-      console.warn('inviteUserByEmail failed (fallback to lookup):', inviteErr?.message ?? inviteErr);
+      const reason = inviteErr instanceof Error ? inviteErr.message : String(inviteErr);
+      console.warn('inviteUserByEmail failed (fallback to lookup):', reason);
     }
 
     // 2) 폴백: profiles 테이블 우선 조회 -> admin.listUsers 폴백
@@ -48,7 +52,11 @@ export class AuthService {
     if (!found) {
       // 초대도 실패했고, 사용자도 찾지 못했다면 안전하게 에러 반환
       // (UX 관점에서 여기서도 "성공"으로 돌릴 수 있으나, 명시적으로 실패하도록 유지)
-      throw new Error('Failed to send verification email');
+      throw new AppError('Failed to send verification email', {
+        status: 500,
+        code: 'signup_failed',
+        cause: new Error('No user found after fallback lookup'),
+      });
     }
 
     // 프로필 보장
@@ -103,7 +111,8 @@ export class AuthService {
     } catch (otpErr) {
       // OTP 검증 실패일 수 있지만, 일부 설정에서는 verify가 실패하더라도 user가 이미 생성되어 있거나
       // 다른 흐름으로 생성이 필요할 수 있다. 여기서는 폴백으로 계속 진행.
-      console.warn('verifyOtp returned error or no user (fallback):', otpErr?.message ?? otpErr);
+      const reason = otpErr instanceof Error ? otpErr.message : String(otpErr);
+      console.warn('verifyOtp returned error or no user (fallback):', reason);
     }
 
     // 폴백 흐름: user 존재 여부 확인 -> 없으면 createUser -> profile 생성 -> 토큰 발급
@@ -131,7 +140,11 @@ export class AuthService {
         return { tokens, needsDisplayName: true };
       } catch (createErr) {
         console.error('createUser fallback failed', createErr);
-        throw new Error('Failed to verify email');
+        throw new AppError('Failed to verify email', {
+          status: 400,
+          code: 'verification_failed',
+          cause: createErr,
+        });
       }
     }
 
@@ -150,44 +163,52 @@ export class AuthService {
   }
 
   async issueTokensForUser(user: AuthenticatedUser): Promise<TokenPair> {
-    const access = await createAccessToken(user);
-    const refresh = await createRefreshToken(user);
-    await refreshTokenService.saveToken({
-      userId: user.id,
-      tokenId: refresh.jti,
-      tokenHash: hashToken(refresh.token),
-      expiresAt: refresh.expiresAt,
-    });
-    return {
-      accessToken: access.token,
-      refreshToken: refresh.token,
-      refreshTokenId: refresh.jti,
-      accessExpiresAt: access.expiresAt,
-      refreshExpiresAt: refresh.expiresAt,
-    };
+    try {
+      const access = await createAccessToken(user);
+      const refresh = await createRefreshToken(user);
+      await refreshTokenService.saveToken({
+        userId: user.id,
+        tokenId: refresh.jti,
+        tokenHash: hashToken(refresh.token),
+        expiresAt: refresh.expiresAt,
+      });
+      return {
+        accessToken: access.token,
+        refreshToken: refresh.token,
+        refreshTokenId: refresh.jti,
+        accessExpiresAt: access.expiresAt,
+        refreshExpiresAt: refresh.expiresAt,
+      };
+    } catch (error) {
+      throw AppError.normalize(error, {
+        message: 'Failed to issue tokens',
+        status: 500,
+        code: 'token_issue_failed',
+      });
+    }
   }
 
   async refreshSession(c: Context) {
     const refreshToken = getCookie(c, REFRESH_COOKIE_NAME);
     if (!refreshToken) {
-      throw new Error('Refresh token missing');
+      throw new AppError('Refresh token missing', { status: 401, code: 'refresh_token_missing' });
     }
     const payload = await verifyRefreshToken(refreshToken);
     const record = await refreshTokenService.getToken(payload.jti);
     if (!record) {
-      throw new Error('Refresh token not found');
+      throw new AppError('Refresh token not found', { status: 401, code: 'refresh_token_not_found' });
     }
     if (record.revoked) {
-      throw new Error('Refresh token revoked');
+      throw new AppError('Refresh token revoked', { status: 401, code: 'refresh_token_revoked' });
     }
     const expiresAt = new Date(record.expires_at);
     if (expiresAt.getTime() < Date.now()) {
       await refreshTokenService.revokeToken(record.id);
-      throw new Error('Refresh token expired');
+      throw new AppError('Refresh token expired', { status: 401, code: 'refresh_token_expired' });
     }
     if (hashToken(refreshToken) !== record.token_hash) {
       await refreshTokenService.revokeToken(record.id);
-      throw new Error('Refresh token mismatch');
+      throw new AppError('Refresh token mismatch', { status: 401, code: 'refresh_token_mismatch' });
     }
 
     const userId = payload.sub;

@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { createHash, randomUUID } from 'node:crypto';
 import env from '../config/env';
 import type { AuthenticatedUser } from '../types/auth';
+import { AppError } from './errors';
 
 const encoder = new TextEncoder();
 const secret = encoder.encode(env.JWT_SECRET);
@@ -69,19 +70,33 @@ export async function createRefreshToken(user: AuthenticatedUser) {
 }
 
 export async function verifyAccessToken(token: string) {
-  const { payload } = await jwtVerify(token, secret);
-  if (payload.type !== 'access') {
-    throw new Error('Invalid token type');
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (payload.type !== 'access') {
+      throw new AppError('Invalid access token', { status: 401, code: 'invalid_access_token' });
+    }
+    return payload as unknown as AccessTokenPayload;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError('Invalid access token', { status: 401, code: 'invalid_access_token', cause: error });
   }
-  return payload as unknown as AccessTokenPayload;
 }
 
 export async function verifyRefreshToken(token: string) {
-  const { payload } = await jwtVerify(token, secret);
-  if (payload.type !== 'refresh' || typeof payload.jti !== 'string') {
-    throw new Error('Invalid token type');
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (payload.type !== 'refresh' || typeof payload.jti !== 'string') {
+      throw new AppError('Invalid refresh token', { status: 401, code: 'invalid_refresh_token' });
+    }
+    return payload as unknown as RefreshTokenPayload;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError('Invalid refresh token', { status: 401, code: 'invalid_refresh_token', cause: error });
   }
-  return payload as unknown as RefreshTokenPayload;
 }
 
 export function hashToken(token: string) {
