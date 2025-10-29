@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
 import { profileService } from '../services/profile-service';
+import { AppError, handleRouteError } from '../lib/errors';
 
 const updateSchema = z.object({
   display_name: z.string().max(120).optional(),
@@ -20,12 +21,23 @@ usersRouter.get('/me', async (c) => {
   try {
     const profile = await profileService.getProfile(user.id);
     if (!profile) {
-      return c.json({ ok: false, message: 'Profile not found' }, 404);
+      return handleRouteError(
+        c,
+        new AppError('Profile not found', { status: 404, code: 'profile_not_found' }),
+        {
+          message: 'Profile not found',
+          status: 404,
+          code: 'profile_not_found',
+        },
+      );
     }
     return c.json({ ok: true, profile });
   } catch (error) {
-    console.error('Profile fetch error', error);
-    return c.json({ ok: false, message: 'Failed to load profile' }, 500);
+    return handleRouteError(c, error, {
+      message: 'Failed to load profile',
+      status: 500,
+      code: 'profile_load_failed',
+    });
   }
 });
 
@@ -46,8 +58,11 @@ usersRouter.put('/me', async (c) => {
     });
     return c.json({ ok: true, profile });
   } catch (error) {
-    console.error('Profile update error', error);
-    return c.json({ ok: false, message: 'Failed to update profile' }, 500);
+    return handleRouteError(c, error, {
+      message: 'Failed to update profile',
+      status: 500,
+      code: 'profile_update_failed',
+    });
   }
 });
 

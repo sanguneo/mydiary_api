@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { AppError } from '../lib/errors';
 
 export interface RefreshTokenRecord {
   id: string;
@@ -19,7 +20,11 @@ export class RefreshTokenService {
       expires_at: args.expiresAt.toISOString(),
     });
     if (error) {
-      throw new Error(`Failed to store refresh token: ${error.message}`);
+      throw new AppError('Failed to store refresh token', {
+        status: 500,
+        code: 'refresh_token_store_failed',
+        cause: error,
+      });
     }
   }
 
@@ -30,7 +35,11 @@ export class RefreshTokenService {
       .eq('id', tokenId)
       .maybeSingle<RefreshTokenRecord>();
     if (error) {
-      throw new Error(`Failed to load refresh token: ${error.message}`);
+      throw new AppError('Failed to load refresh token', {
+        status: 500,
+        code: 'refresh_token_lookup_failed',
+        cause: error,
+      });
     }
     return data ?? null;
   }
@@ -42,7 +51,11 @@ export class RefreshTokenService {
     }
     const { error } = await supabase.from('refresh_tokens').update(updates).eq('id', tokenId);
     if (error) {
-      throw new Error(`Failed to revoke refresh token: ${error.message}`);
+      throw new AppError('Failed to revoke refresh token', {
+        status: 500,
+        code: 'refresh_token_revoke_failed',
+        cause: error,
+      });
     }
   }
 }

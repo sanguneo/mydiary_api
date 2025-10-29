@@ -9,6 +9,8 @@
   "dependencies": {
     "@hono/node-server": "^1.9.1",
     "@supabase/supabase-js": "^2.44.4",
+    "bcryptjs": "^3.0.2",
+    "dayjs": "^1.11.18",
     "hono": "^4.3.7",
     "jose": "^5.2.0",
     "nanoid": "^5.0.7",

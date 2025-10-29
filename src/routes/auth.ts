@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authService } from '../services/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../lib/cookies';
+<<<<<<< HEAD
+import { handleRouteError } from '../lib/errors';
+=======
+>>>>>>> 5447c9e (✨회원가입 로그인 기능)
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -40,8 +44,16 @@ authRouter.post('/signup', async (c) => {
       user_id: userId ?? null,
     });
   } catch (error) {
+<<<<<<< HEAD
+    return handleRouteError(c, error, {
+      message: 'Failed to send verification email',
+      status: 500,
+      code: 'signup_failed',
+    });
+=======
     console.error('Signup error', error);
     return c.json({ ok: false, message: 'Failed to send verification email' }, 500);
+>>>>>>> 5447c9e (✨회원가입 로그인 기능)
   }
 });
 
@@ -69,8 +81,11 @@ authRouter.get('/verify', async (c) => {
     }
     return c.redirect(FRONTEND_URL);
   } catch (error) {
-    console.error('Verify error', error);
-    return c.json({ ok: false, message: 'Failed to verify token' }, 400);
+    return handleRouteError(c, error, {
+      message: 'Failed to verify token',
+      status: 400,
+      code: 'verification_failed',
+    });
   }
 });
 
@@ -80,8 +95,11 @@ authRouter.post('/refresh', async (c) => {
     setAuthCookies(c, tokens);
     return c.json({ ok: true, message: 'Session refreshed' });
   } catch (error) {
-    console.error('Refresh error', error);
-    return c.json({ ok: false, message: 'Failed to refresh session' }, 401);
+    return handleRouteError(c, error, {
+      message: 'Failed to refresh session',
+      status: 401,
+      code: 'refresh_failed',
+    });
   }
 });
 

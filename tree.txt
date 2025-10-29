@@ -1,0 +1,48 @@
+|   .env
+|   .env.example
+|   .gitignore
+|   bun.lock
+|   package.json
+|   tsconfig.json
+|   
++---src
+|   |   app.ts
+|   |   index.ts
+|   |   
+|   +---config
+|   |       env.ts
+|   |       
+|   +---lib
+|   |       cookies.ts
+|   |       errors.ts
+|   |       supabase.ts
+|   |       tokens.ts
+|   |       
+|   +---middleware
+|   |       auth.ts
+|   |       logger.ts
+|   |       
+|   +---routes
+|   |       auth.ts
+|   |       uploads.ts
+|   |       users.ts
+|   |       
+|   +---services
+|   |       auth-service.ts
+|   |       profile-service.ts
+|   |       refresh-token-service.ts
+|   |       storage-service.ts
+|   |       
+|   \---types
+|           auth.ts
+|           global.d.ts
+|           hono.d.ts
+|           
+\---supabase
+    +---migrations
+    |       001_create_profiles_and_user_roles.sql
+    |       002_create_refresh_tokens.sql
+    |       
+    \---policies
+            profiles_rls.sql
+            
