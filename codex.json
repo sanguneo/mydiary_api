@@ -1,345 +1,315 @@
 {
-  "repo": {
-    "name": "diary-backend-bun-hono-supabase",
-    "description": "Backend for Private Emotion Diary - Bun + Hono API with Supabase (Auth + Postgres). Includes user profiles, encrypted entries, admin console APIs, audit logging, RLS policies, and Postman collection for testing.",
-    "visibility": "private",
-    "license": "MIT"
+  "meta": {
+    "title": "User/Auth Implementation Manual (JSON)",
+    "version": "1.0",
+    "language": "ko",
+    "notes": "요구사항 기반 구현 매뉴얼(구체적 작업 항목 + Supabase에서 수동으로 해야 하는 작업 포함). 구현 코드는 포함하지 않음; 엔드포인트/DB/정책/운영 지침을 JSON으로 정리."
   },
-  "tech_stack": {
-    "runtime": "Bun",
-    "framework": "Hono",
-    "database": "Supabase (Postgres)",
-    "auth": "Supabase Auth (client) + token validation on server",
-    "encryption": "Client-side AES-GCM for entry text; server provides wrap/unwrap helper using SERVER_WRAP_KEY (no external KMS).",
-    "language": "TypeScript",
-    "other_libs": [
-      "@supabase/supabase-js",
-      "nanoid",
-      "bcryptjs",
-      "jose",
-      "dotenv",
-      "zod"
-    ],
-    "key_management": "Server-side wrapping using SERVER_WRAP_KEY (dev). In production store keys in a secure secrets manager and enforce rotation."
+  "prerequisites": {
+    "supabase_project": "이미 생성됨(사용자 명시).",
+    "access": "Supabase 프로젝트의 Project API keys(Service Role Key 포함)에 접근 가능해야 함.",
+    "local_env": [
+      "bun",
+      "hono",
+      "supabase CLI (선택 사항, 로컬 개발용)",
+      "git"
+    ]
   },
-  "project_structure": {
-    "root": [
-      "package.json",
-      "bun.lockb",
-      "tsconfig.json",
-      ".env.example",
-      "README.md",
-      "src/",
-      "migrations/",
-      "scripts/",
-      "postman/",
-      "test/"
-    ],
-    "src": {
-      "index.ts": "start server (bun serve) - loads app.fetch from app.ts",
-      "app.ts": "Hono app, route mounting",
-      "controllers/": "business logic per resource (authInit, entries, admin)",
-      "routes/": "Hono route declarations (public + protected + admin)",
-      "middleware/": "auth middleware (validate via supabase /auth/v1/user), admin middleware (check admin_roles)",
-      "services/": {
-        "supabaseClient.ts": "initialize supabase client with service_role key (read from Codex environment variables)",
-        "crypto.ts": "wrap/unwrap helpers using SERVER_WRAP_KEY (AES-GCM) and client-side AES helpers; KMS adapters removed",
-        "audit.ts": "audit log helper"
-      },
-      "types/": "shared TypeScript types (User, Entry, Profile, ApiResponse)",
-      "utils/": "helpers (date mapping for 1yr/2yr mapping, validation)"
+  "env_variables": {
+    "SERVER": {
+      "SUPABASE_URL": "https://<your-project>.supabase.co",
+      "SUPABASE_SERVICE_ROLE_KEY": "supabase service_role key (서버 전용, 절대 클라이언트에 노출 금지)",
+      "SUPABASE_ANON_KEY": "프론트에서 절대 사용하지 않음(참고용)",
+      "PORT": "3000",
+      "NODE_ENV": "development|production",
+      "JWT_SECRET": "서버에서 자체적으로 JWT를 발급/검증할 경우 사용(선택)"
+    },
+    "note": "predefined env at codex env setting"
+  },
+  "manual_actions_in_supabase_console": [
+    {
+      "id": 1,
+      "title": "Project API Keys 확인",
+      "detail": "Supabase 프로젝트 Settings → API 에서 Service Role Key를 복사해 서버 환경변수에 저장."
+    },
+    {
+      "id": 2,
+      "title": "Auth 이메일 템플릿 및 메일 설정 확인",
+      "detail": "Auth → Templates 에서 이메일 인증 템플릿 확인. (SMTP가 필요하면 Settings → Email에서 구성)"
+    },
+    {
+      "id": 3,
+      "title": "Storage 버킷 생성",
+      "detail": "프로필 이미지를 위한 profiles(public) 버킷 생성 및 public 권한 설정. 컨텐츠 용은 별도의 content 버킷 생성(비공개)."
+    },
+    {
+      "id": 4,
+      "title": "CORS / 도메인 설정 검토",
+      "detail": "API와 프론트가 서로 다른 도메인일 경우, cookie 전송을 위해 클라이언트 도메인을 허용하고 Access-Control-Allow-Credentials 허용."
+    },
+    {
+      "id": 5,
+      "title": "Database SQL 실행(아래 제공된 migration SQL 적용)",
+      "detail": "아래 섹션의 마이그레이션 SQL을 복사하여 Supabase SQL Editor에서 실행(또는 supabase migrations로 적용)."
+    },
+    {
+      "id": 6,
+      "title": "RLS 활성화 및 정책 확인",
+      "detail": "profiles 테이블에 RLS 활성화 및 정책이 생성되었는지 확인. (아래의 RLS 정책 SQL 참고)"
+    },
+    {
+      "id": 7,
+      "title": "Role 배치(선택)",
+      "detail": "관리자 역할을 DB에서 관리하려면 user_roles 테이블을 활용. 인력/운영자가 수동으로 역할을 부여할 준비."
     }
-  },
-  "environment": {
-    "note": "Codex has been configured with the required environment variables — the server reads these from the process environment. Do not store service_role or secret values in client code or in repo.",
-    "required": [
-      "SUPABASE_URL",
-      "SUPABASE_ANON_KEY",
-      "SUPABASE_SERVICE_KEY",
-      "SUPABASE_JWT_SECRET (optional, if verifying locally)",
-      "SERVER_WRAP_KEY (base64 32 bytes) - used for server-side wrapping/unwrapping when not using external KMS",
-      "PORT (default 3000)"
-    ],
-    "usage": "The code must read secrets from process.env (Codex-provided env). Example: process.env.SUPABASE_SERVICE_KEY. .env files are only for local testing; in your Codex-hosted environment variables are already set."
-  },
+  ],
   "migrations": [
     {
-      "filename": "001_create_extensions_and_core_tables.sql",
-      "content": "-- create extension and core tables\ncreate extension if not exists \"pgcrypto\";\n\n-- profiles: additional user metadata for auth.users\ncreate table if not exists profiles (\n  id uuid primary key references auth.users (id) on delete cascade,\n  email text,\n  account_key_meta jsonb,\n  settings jsonb default '{}'::jsonb,\n  is_disabled boolean default false,\n  created_at timestamptz default now(),\n  updated_at timestamptz default now()\n);\n\n-- entries : encrypted diary entries\ncreate table if not exists entries (\n  id uuid primary key default gen_random_uuid(),\n  user_id uuid references auth.users (id) on delete cascade,\n  created_at timestamptz default now(),\n  updated_at timestamptz default now(),\n  entry_date date not null,\n  entry_time time,\n  is_locked boolean default false,\n  ciphertext text not null,\n  iv text not null,\n  wrapped_entry_key text,\n  meta jsonb,\n  constraint entries_user_date_unique unique (user_id, id)\n);\n\ncreate index if not exists idx_entries_user_date on entries (user_id, entry_date);\n\n-- admin_roles\ncreate table if not exists admin_roles (\n  user_id uuid references auth.users(id),\n  role text,\n  created_at timestamptz default now(),\n  primary key (user_id)\n);\n\n-- audit_logs\ncreate table if not exists audit_logs (\n  id uuid primary key default gen_random_uuid(),\n  actor_id uuid,\n  target_user_id uuid,\n  action text,\n  details jsonb,\n  created_at timestamptz default now()\n);\n\ncreate index if not exists idx_audit_actor on audit_logs(actor_id);\ncreate index if not exists idx_audit_target on audit_logs(target_user_id);\n"
+      "name": "001_create_profiles_and_user_roles.sql",
+      "content_lines": [
+        "BEGIN;",
+        "",
+        "-- profiles 테이블: auth.users.id 를 PK로 사용",
+        "CREATE TABLE IF NOT EXISTS public.profiles (",
+        "  id uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,",
+        "  email text,",
+        "  display_name text,",
+        "  settings jsonb DEFAULT '{}'::jsonb,",
+        "  role text DEFAULT 'user',",
+        "  is_disabled boolean DEFAULT false,",
+        "  created_at timestamptz DEFAULT now(),",
+        "  updated_at timestamptz DEFAULT now()",
+        ");",
+        "",
+        "-- user_roles (운영자/관리자 권한 관리용, 선택적)",
+        "CREATE TABLE IF NOT EXISTS public.user_roles (",
+        "  user_id uuid REFERENCES auth.users (id) ON DELETE CASCADE,",
+        "  role text NOT NULL,",
+        "  assigned_by uuid,",
+        "  assigned_at timestamptz DEFAULT now(),",
+        "  PRIMARY KEY (user_id, role)",
+        ");",
+        "",
+        "-- updated_at 자동 갱신 트리거",
+        "CREATE OR REPLACE FUNCTION public.set_updated_at()",
+        "RETURNS trigger LANGUAGE plpgsql AS $$",
+        "BEGIN",
+        "  NEW.updated_at = now();",
+        "  RETURN NEW;",
+        "END;",
+        "$$;",
+        "",
+        "DROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;",
+        "CREATE TRIGGER trg_profiles_updated_at",
+        "  BEFORE UPDATE ON public.profiles",
+        "  FOR EACH ROW",
+        "  EXECUTE PROCEDURE public.set_updated_at();",
+        "",
+        "COMMIT;"
+      ],
+      "content": "BEGIN;\\n\\n-- profiles 테이블: auth.users.id 를 PK로 사용\\nCREATE TABLE IF NOT EXISTS public.profiles (\\n  id uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,\\n  email text,\\n  display_name text,\\n  settings jsonb DEFAULT '{}'::jsonb,\\n  role text DEFAULT 'user',\\n  is_disabled boolean DEFAULT false,\\n  created_at timestamptz DEFAULT now(),\\n  updated_at timestamptz DEFAULT now()\\n);\\n\\n-- user_roles (운영자/관리자 권한 관리용, 선택적)\\nCREATE TABLE IF NOT EXISTS public.user_roles (\\n  user_id uuid REFERENCES auth.users (id) ON DELETE CASCADE,\\n  role text NOT NULL,\\n  assigned_by uuid,\\n  assigned_at timestamptz DEFAULT now(),\\n  PRIMARY KEY (user_id, role)\\n);\\n\\n-- updated_at 자동 갱신 트리거\\nCREATE OR REPLACE FUNCTION public.set_updated_at()\\nRETURNS trigger LANGUAGE plpgsql AS $$\\nBEGIN\\n  NEW.updated_at = now();\\n  RETURN NEW;\\nEND;\\n$$;\\n\\nDROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;\\nCREATE TRIGGER trg_profiles_updated_at\\n  BEFORE UPDATE ON public.profiles\\n  FOR EACH ROW\\n  EXECUTE PROCEDURE public.set_updated_at();\\n\\nCOMMIT;"
     },
     {
-      "filename": "002_rls_and_policies.sql",
-      "content": "-- Enable RLS and create policies\nalter table profiles enable row level security;\nalter table entries enable row level security;\nalter table audit_logs enable row level security;\n\n-- profiles owner: users can manage their own profile\ncreate policy profiles_owner on profiles\n  for all\n  using ( auth.uid() = id )\n  with check ( auth.uid() = id );\n\n-- entries owner: users can manage their own entries\ncreate policy entries_owner on entries\n  for all\n  using ( auth.uid() = user_id )\n  with check ( auth.uid() = user_id );\n\n-- allow admin to view profiles (select only)\ncreate policy profiles_admin on profiles\n  for select\n  using ( exists (select 1 from admin_roles ar where ar.user_id = auth.uid()) );\n\n-- audit_logs: only admin can read/write\ncreate policy audit_admin_only on audit_logs\n  for all\n  using ( exists (select 1 from admin_roles ar where ar.user_id = auth.uid()) );\n"
+      "name": "002_auto_create_profile_on_auth_user_create.sql",
+      "content_lines": [
+        "BEGIN;",
+        "",
+        "-- auth.users에 행이 생성될 때 public.profiles 행을 자동으로 생성",
+        "CREATE OR REPLACE FUNCTION public.handle_auth_user_created()",
+        "RETURNS trigger LANGUAGE plpgsql AS $$",
+        "BEGIN",
+        "  -- 새 사용자에 대해 profiles 레코드가 없으면 생성",
+        "  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.id) THEN",
+        "    INSERT INTO public.profiles (id, email, settings)",
+        "    VALUES (NEW.id, NEW.email, '{}'::jsonb);",
+        "  END IF;",
+        "  RETURN NEW;",
+        "END;",
+        "$$;",
+        "",
+        "DROP TRIGGER IF EXISTS trg_handle_auth_user_created ON auth.users;",
+        "CREATE TRIGGER trg_handle_auth_user_created",
+        "  AFTER INSERT ON auth.users",
+        "  FOR EACH ROW",
+        "  EXECUTE PROCEDURE public.handle_auth_user_created();",
+        "",
+        "COMMIT;"
+      ],
+      "content": "BEGIN;\\n\\n-- auth.users에 행이 생성될 때 public.profiles 행을 자동으로 생성\\nCREATE OR REPLACE FUNCTION public.handle_auth_user_created()\\nRETURNS trigger LANGUAGE plpgsql AS $$\\nBEGIN\\n  -- 새 사용자에 대해 profiles 레코드가 없으면 생성\\n  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.id) THEN\\n    INSERT INTO public.profiles (id, email, settings)\\n    VALUES (NEW.id, NEW.email, '{}'::jsonb);\\n  END IF;\\n  RETURN NEW;\\nEND;\\n$$;\\n\\nDROP TRIGGER IF EXISTS trg_handle_auth_user_created ON auth.users;\\nCREATE TRIGGER trg_handle_auth_user_created\\n  AFTER INSERT ON auth.users\\n  FOR EACH ROW\\n  EXECUTE PROCEDURE public.handle_auth_user_created();\\n\\nCOMMIT;"
     }
   ],
+  "rls_policies": {
+    "notes": "profiles 테이블 RLS정책. 적용 전 RLS 활성화 필요: ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;",
+    "steps_sql": [
+      "ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;",
+      "-- 소유자(본인)에게 SELECT 허용\nCREATE POLICY profiles_select_owner ON public.profiles\n FOR SELECT\n USING (auth.uid() = id);\n\n-- super_admin 에게 SELECT 허용 (user_roles 테이블 사용 방식)\nCREATE POLICY profiles_select_admin ON public.profiles\n FOR SELECT\n USING (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role = 'super_admin'));\n\n-- 소유자(본인)에게 UPDATE 허용\nCREATE POLICY profiles_update_owner ON public.profiles\n FOR UPDATE\n USING (auth.uid() = id)\n WITH CHECK (auth.uid() = id);\n\n-- super_admin 에게 UPDATE 허용\nCREATE POLICY profiles_update_admin ON public.profiles\n FOR UPDATE\n USING (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role = 'super_admin'))\n WITH CHECK (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role = 'super_admin'));\n"
+    ],
+    "notes2": "위 정책은 user_roles 테이블을 전제로 함. 만약 roles를 profiles.role 컬럼에 저장하려면 정책의 EXISTS 부분을 (profiles.role = 'super_admin' OR (profiles.role IS NULL)) 형태로 바꿔야 함."
+  },
   "api_spec": {
-    "base_url": "https://<YOUR_SERVER_HOST>:<PORT>/api",
-    "auth": "Supabase Auth token — Authorization: Bearer <access_token> (server validates via /auth/v1/user or local JWT verification if configured)",
+    "note": "구현팀이 바로 개발할 수 있도록 엔드포인트명, 메서드, 인증 요구, 바디/응답 형태(요약) 제공.",
     "endpoints": [
       {
-        "id": "init_profile",
+        "path": "/auth/signup",
         "method": "POST",
-        "path": "/api/init",
-        "auth": "Bearer token (supabase access_token)",
-        "description": "Initialize server-side profile record and create account_key_meta. Server will generate account master key and wrap it using SERVER_WRAP_KEY (no external KMS).",
-        "request": { "body": {} },
-        "response": { "200": { "ok": true, "message": "initialized" } }
-      },
-      {
-        "id": "list_entries_by_date",
-        "method": "GET",
-        "path": "/api/entries?date=YYYY-MM-DD",
-        "auth": "Bearer token",
-        "description": "Returns entries metadata (no plaintext) for the date. RLS ensures user sees only own rows.",
+        "auth_required": false,
+        "summary": "이메일 기반 회원가입(비밀번호 없음). 가입 시 auth.users 및 profiles 생성. 쿠키 발급하지 않음.",
+        "request": { "email": "string (required)" },
         "response": {
-          "200": {
-            "entries": [
-              {
-                "id": "<uuid>",
-                "entry_date": "YYYY-MM-DD",
-                "entry_time": "HH:MM",
-                "is_locked": true,
-                "meta": {}
-              }
-            ]
-          }
+          "ok": "true|false",
+          "message": "string",
+          "user_id": "uuid (optional)"
         }
       },
       {
-        "id": "create_entry",
+        "path": "/auth/verify?token=<token_or_code>",
+        "method": "GET",
+        "auth_required": false,
+        "summary": "이메일 인증 링크 호출 엔드포인트(또는 Supabase의 이메일 확인 웹훅 처리). 인증 확인 시 액세스/리프레시 토큰을 발급하고 httpOnly 쿠키로 설정.",
+        "request": null,
+        "response": { "ok": "true|false", "message": "string" }
+      },
+      {
+        "path": "/auth/refresh",
         "method": "POST",
-        "path": "/api/entries",
-        "auth": "Bearer token",
-        "description": "Create new encrypted entry. Client sends ciphertext, iv, and wrapped_entry_key (server-side wrap using SERVER_WRAP_KEY is available via /api/keys/wrap).",
+        "auth_required": false,
+        "summary": "쿠키에 담긴 리프레시 토큰으로 액세스 토큰(15분) + 새로운 리프레시 토큰(7일)을 발급. 회전 적용.",
+        "request": null,
+        "response": { "ok": "true|false", "message": "string" }
+      },
+      {
+        "path": "/auth/logout",
+        "method": "POST",
+        "auth_required": false,
+        "summary": "클라이언트가 httpOnly 쿠키를 삭제하면 로그아웃으로 처리. 서버에서 추가 동작이 필요하면 수행(선택).",
+        "request": null,
+        "response": { "ok": "true|false" }
+      },
+      {
+        "path": "/users/me",
+        "method": "GET",
+        "auth_required": true,
+        "summary": "현재 사용자 프로필 조회 (profiles 테이블 반환 필드: id, email, display_name, settings, role)",
+        "response": {
+          "id": "uuid",
+          "email": "string",
+          "display_name": "string|null",
+          "settings": "json",
+          "role": "string"
+        }
+      },
+      {
+        "path": "/users/me",
+        "method": "PUT",
+        "auth_required": true,
+        "summary": "현재 사용자 프로필 업데이트(예: display_name 전체 덮어쓰기 또는 제한된 필드 업데이트). RLS에 따라 본인만 수정 가능; super_admin은 예외.",
+        "request": { "display_name?": "string", "settings?": "json (통째로)" },
+        "response": { "ok": "true|false", "profile": "object" }
+      },
+      {
+        "path": "/uploads/presign",
+        "method": "POST",
+        "auth_required": true,
+        "summary": "콘텐츠 업로드시 presigned URL 발급(비공개 content 버킷용).",
         "request": {
-          "body": {
-            "entry_date": "YYYY-MM-DD",
-            "entry_time": "HH:MM",
-            "ciphertext": "base64 string",
-            "iv": "base64 string",
-            "wrapped_entry_key": "base64 string (optional)",
-            "is_locked": "boolean",
-            "meta": { "emotion": "😀", "tags": [] }
-          }
+          "filename": "string",
+          "contentType": "string",
+          "bucket": "content"
         },
-        "response": { "201": { "ok": true, "id": "<entry id>" } }
-      },
-      {
-        "id": "get_entry",
-        "method": "GET",
-        "path": "/api/entries/:id",
-        "auth": "Bearer token",
-        "description": "Returns ciphertext, iv, wrapped_entry_key, meta, is_locked. Server does NOT return plaintext.",
-        "response": {
-          "200": {
-            "id": "<uuid>",
-            "ciphertext": "...",
-            "iv": "...",
-            "wrapped_entry_key": "...",
-            "is_locked": true,
-            "meta": {}
-          }
-        }
-      },
-      {
-        "id": "wrap_entry_key",
-        "method": "POST",
-        "path": "/api/keys/wrap",
-        "auth": "Bearer token",
-        "description": "Wraps a base64 entry_key using SERVER_WRAP_KEY (server-side AES-GCM wrap). This endpoint is the production wrapping flow in the current no-KMS setup. The server returns a wrapped_key_base64 that the client stores alongside ciphertext.",
-        "request": { "body": { "entry_key_base64": "..." } },
-        "response": { "200": { "wrapped_key_base64": "..." } }
-      },
-      {
-        "id": "admin_list_users",
-        "method": "GET",
-        "path": "/api/admin/users?page=1&limit=50",
-        "auth": "Bearer token (admin user)",
-        "description": "Admin-only: returns user list with limited profile fields (id, email, created_at, is_disabled, settings).",
-        "response": { "200": { "users": [ { "id": "...", "email": "...", "is_disabled": false, "created_at": "..." } ] } }
-      },
-      {
-        "id": "admin_suspend_user",
-        "method": "POST",
-        "path": "/api/admin/users/:id/suspend",
-        "auth": "Bearer token (admin)",
-        "description": "Suspends user (sets profiles.is_disabled true) and writes audit log.",
-        "request": { "body": { "reason": "support_reason" } },
-        "response": { "200": { "ok": true } }
-      },
-      {
-        "id": "admin_get_user_entries_meta",
-        "method": "GET",
-        "path": "/api/admin/users/:id/entries?date=YYYY-MM-DD",
-        "auth": "Bearer token (admin)",
-        "description": "Admin-only: returns entries metadata for a user on a date; ciphertext is not returned by default.",
-        "response": { "200": { "entries": [ { "id": "...", "entry_date": "...", "entry_time": "...", "is_locked": true } ] } }
-      },
-      {
-        "id": "admin_request_unwrap",
-        "method": "POST",
-        "path": "/api/admin/request-unwrap",
-        "auth": "Bearer token (admin)",
-        "description": "Admin may request a key unwrap for support/legal purpose. This endpoint inserts an audit log record and initiates a controlled unwrap workflow. DO NOT return plaintext automatically; unwrap requires explicit manual approval and must be logged.",
-        "request": { "body": { "user_id": "...", "entry_id": "...", "reason": "..." } },
-        "response": { "200": { "ok": true, "message": "audit created, follow-up required" } }
-      }
-    ]
-  },
-  "postman_collection": {
-    "info": {
-      "name": "Diary Backend - Bun+Hono - Postman Collection",
-      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-      "description": "Collection for testing auth/init/entries/admin endpoints. Replace {{base_url}} and set Authorization header with Supabase access_token."
-    },
-    "item": [
-      {
-        "name": "Get Supabase User (token verify)",
-        "request": {
-          "method": "GET",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{access_token}}" }
-          ],
-          "url": "{{supabase_url}}/auth/v1/user"
-        }
-      },
-      {
-        "name": "POST /api/init (init profile)",
-        "request": {
-          "method": "POST",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{access_token}}" },
-            { "key": "Content-Type", "value": "application/json" }
-          ],
-          "body": {
-            "mode": "raw",
-            "raw": "{}"
-          },
-          "url": "{{base_url}}/api/init"
-        }
-      },
-      {
-        "name": "GET /api/entries?date=YYYY-MM-DD",
-        "request": {
-          "method": "GET",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{access_token}}" }
-          ],
-          "url": "{{base_url}}/api/entries?date={{date}}"
-        }
-      },
-      {
-        "name": "POST /api/entries (create encrypted entry)",
-        "request": {
-          "method": "POST",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{access_token}}" },
-            { "key": "Content-Type", "value": "application/json" }
-          ],
-          "body": {
-            "mode": "raw",
-            "raw": "{\n  \"entry_date\": \"2025-10-28\",\n  \"entry_time\": \"09:13\",\n  \"ciphertext\": \"<base64Ciphertext>\",\n  \"iv\": \"<base64IV>\",\n  \"wrapped_entry_key\": \"<base64WrappedKey>\",\n  \"is_locked\": false,\n  \"meta\": { \"emotion\": \"😀\" }\n}"
-          },
-          "url": "{{base_url}}/api/entries"
-        }
-      },
-      {
-        "name": "GET /api/entries/:id",
-        "request": {
-          "method": "GET",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{access_token}}" }
-          ],
-          "url": "{{base_url}}/api/entries/{{entry_id}}"
-        }
-      },
-      {
-        "name": "Admin: GET /api/admin/users",
-        "request": {
-          "method": "GET",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" }
-          ],
-          "url": "{{base_url}}/api/admin/users"
-        }
-      },
-      {
-        "name": "Admin: POST /api/admin/users/:id/suspend",
-        "request": {
-          "method": "POST",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" },
-            { "key": "Content-Type", "value": "application/json" }
-          ],
-          "body": {
-            "mode": "raw",
-            "raw": "{\n  \"reason\": \"support - spam\"\n}"
-          },
-          "url": "{{base_url}}/api/admin/users/{{target_user_id}}/suspend"
-        }
-      },
-      {
-        "name": "Admin: POST /api/admin/request-unwrap",
-        "request": {
-          "method": "POST",
-          "header": [
-            { "key": "Authorization", "value": "Bearer {{admin_access_token}}" },
-            { "key": "Content-Type", "value": "application/json" }
-          ],
-          "body": {
-            "mode": "raw",
-            "raw": "{\n  \"user_id\": \"{{target_user_id}}\",\n  \"entry_id\": \"{{target_entry_id}}\",\n  \"reason\": \"legal request\"\n}"
-          },
-          "url": "{{base_url}}/api/admin/request-unwrap"
-        }
+        "response": { "url": "string", "key": "string", "expires_at": "iso" }
       }
     ],
-    "variable": [
-      { "key": "base_url", "value": "http://localhost:3000" },
-      { "key": "supabase_url", "value": "https://your-supabase-url.supabase.co" },
-      { "key": "access_token", "value": "" },
-      { "key": "admin_access_token", "value": "" },
-      { "key": "date", "value": "2025-10-28" },
-      { "key": "entry_id", "value": "" },
-      { "key": "target_user_id", "value": "" },
-      { "key": "target_entry_id", "value": "" }
+    "cookie_behavior": {
+      "access_cookie": {
+        "name": "app_access",
+        "httpOnly": true,
+        "secure": true,
+        "sameSite": "Lax",
+        "path": "/",
+        "ttl": "15m"
+      },
+      "refresh_cookie": {
+        "name": "app_refresh",
+        "httpOnly": true,
+        "secure": true,
+        "sameSite": "Lax",
+        "path": "/auth/refresh",
+        "ttl": "7d"
+      }
+    }
+  },
+  "auth_flow_details": {
+    "signup_flow": "클라이언트 -> POST /auth/signup(email). 서버는 Supabase에 사용자 레코드 생성 요청(이메일 인증 미완료 상태). profiles 레코드 자동 생성. 쿠키 미설정. 이메일에 인증 링크 발송은 Supabase가 담당.",
+    "verify_flow": "사용자가 이메일 링크 클릭 -> (Supabase의 확인 콜백 또는 서버의 /auth/verify 호출) -> 서버는 확인 이벤트 수신 후 액세스+리프레시 토큰 발급 및 Set-Cookie 응답(둘 다 httpOnly).",
+    "refresh_flow": "클라이언트가 /auth/refresh 호출 또는 미들웨어에 의해 자동 호출 -> 서버는 현재 refresh 토큰 검증 후 새로운 액세스+리프레시 토큰을 발급 및 쿠키 교체(회전). 이전 리프레시 토큰은 사용불가 처리.",
+    "logout": "클라이언트에서 쿠키 삭제(서버가 Set-Cookie로 만료 설정도 가능). 서버에서는 블랙리스트는 유지하지 않음."
+  },
+  "storage_policy": {
+    "buckets": [
+      { "name": "profiles", "public": true, "purpose": "프로필 이미지(공개)" },
+      {
+        "name": "content",
+        "public": false,
+        "purpose": "사용자 컨텐츠/대용량 파일(프라이빗) - presigned URL 방식 사용"
+      }
+    ],
+    "presign_flow": "서버가 presigned URL 생성 요청을 Supabase Storage SDK에 요청하여 클라이언트에 전달. 실제 업로드는 브라우저에서 presigned URL을 사용하여 수행."
+  },
+  "logging": {
+    "format": "structured json",
+    "fields": [
+      "timestamp",
+      "level",
+      "request_id",
+      "service",
+      "env",
+      "method",
+      "path",
+      "status_code",
+      "duration_ms",
+      "user_id",
+      "client_ip",
+      "error_message"
+    ],
+    "recommendation": "개발: 콘솔 출력(json). 운영: 중앙로그(예: ELK/CloudWatch) 연동. 보존 기본 30일."
+  },
+  "tests_and_ci": {
+    "unit_tests": "Vitest 권장. 핵심 유틸/서비스 레이어 테스트 작성.",
+    "integration_tests": "로컬 supabase 인스턴스 또는 테스트 전용 Supabase 프로젝트와 통합 테스트(회원가입, 인증, refresh, profile CRUD).",
+    "ci_workflow": "GitHub Actions: checkout -> setup node/bun -> install deps -> run lint -> run tests. (secret로 SUPABASE_SERVICE_ROLE_KEY 제공)"
+  },
+  "security_considerations": {
+    "csrf": "쿠키 기반 인증이므로 CSRF 방안 필요. SameSite=Lax 권장. 중요 변경엔 CSRF 토큰(또는 Origin header 검증) 추가 권장.",
+    "refresh_rotation": "회전 구현 시 재사용 방지 로직 필요(예: DB에서 최근 사용된 refresh 토큰 히스토리 추적).",
+    "keys": "Service Role Key는 서버 전용 환경변수에만 보관. 절대 클라이언트에 노출 금지."
+  },
+  "checklist_before_development": [
+    "Supabase Service Role Key 확보 및 서버 환경변수에 등록",
+    "Supabase SQL Editor에서 migrations(위 SQL) 적용",
+    "Storage: profiles(public) 및 content(private) 버킷 생성",
+    "Auth 이메일 템플릿/SMTP 설정 확인 (이메일 발송이 동작하는지)",
+    "CORS/도메인 설정(프론트와 분리되어 있다면 반드시 설정)",
+    "RLS 정책 적용 및 권한 검증(테스트 계정으로 본인/관리자 동작 확인)"
+  ],
+  "deliverables_for_dev": {
+    "code": [
+      "supabaseClient wrapper (server-side using service role key)",
+      "auth controller: signup, verify(Webhook/endpoint), refresh, logout",
+      "profile controller: GET /users/me, PUT /users/me",
+      "storage controller: presign generation for content bucket",
+      "middleware: cookie parser, auth verifier (parse cookie->validate access token), role extractor",
+      "logging middleware that injects request_id"
+    ],
+    "db": [
+      "apply migrations above",
+      "verify triggers created on auth.users",
+      "apply RLS policies"
+    ],
+    "ops": [
+      "set env variables on dev/prod",
+      "configure central logging if available",
+      "store service role key securely (secrets manager)"
     ]
   },
-  "tasks": [
-    { "id": 1, "title": "Repo scaffold & basic Bun+Hono app", "description": "Create TypeScript Bun project with Hono app, basic route mount, .env.example, tsconfig, README. Add scripts: start, dev, migrate.", "estimate": "1 day" },
-    { "id": 2, "title": "Supabase client & auth middleware", "description": "Implement supabase client (service role key) and auth middleware that validates incoming Bearer token via SUPABASE /auth/v1/user. Attach supabaseUser to context.", "estimate": "0.5 day" },
-    { "id": 3, "title": "DB migrations & RLS", "description": "Add migrations folder with SQL files (above). Provide migration script or instructions for Supabase SQL editor.", "estimate": "0.5 day" },
-    { "id": 4, "title": "Profile init endpoint (/api/init)", "description": "Create endpoint that checks profiles table and creates wrapped master key using SERVER_WRAP_KEY and stores account_key_meta. For production ensure secret is in Codex environment manager.", "estimate": "0.5 day" },
-    { "id": 5, "title": "Entries CRUD (create/list/get)", "description": "Implement entries endpoints: create (store ciphertext/wrapped key), list by date (metadata only), get by id (ciphertext + wrapped blob). Enforce RLS and server-side checks.", "estimate": "1 day" },
-    { "id": 6, "title": "Wrap/Unwrap service (SERVER_WRAP_KEY)", "description": "Implement server wrap (AES-GCM with SERVER_WRAP_KEY) and secure unwrap helper. Keep wrapping centralized on server and logged.", "estimate": "1 day" },
-    { "id": 7, "title": "Admin endpoints & audit logs", "description": "Admin list users, suspend/reactivate, list user entries metadata, request-unwrap endpoint that logs the request into audit_logs. Implement admin middleware checking admin_roles.", "estimate": "1 day" },
-    { "id": 8, "title": "Postman collection & README", "description": "Add generated Postman collection JSON to /postman/collection.json and a README section documenting how to run and test with Postman. Include environment variables and example tokens.", "estimate": "0.5 day" },
-    { "id": 9, "title": "Tests & CI", "description": "Unit tests for middleware, route handlers, and a basic integration test (mocked supabase or test project). Add GitHub Actions workflow to run lint and tests.", "estimate": "1 day" },
-    { "id": 10, "title": "Hardening & deployment docs", "description": "Document secret management, production env variables, hosting options for Bun (e.g., VPS or Bun Cloud), and database backup strategy.", "estimate": "1 day" }
-  ],
-  "deliverables": [
-    "Git repository with full project scaffold and TypeScript source",
-    "migrations SQL files in /migrations",
-    "README with quickstart and Postman testing steps",
-    "postman/collection.json (Postman v2.1 compatible) in project root",
-    "CI workflow (github actions) to run lint & tests",
-    "example .env.example and instructions to generate SERVER_WRAP_KEY",
-    "documentation for production secret management"
-  ],
-  "security_and_operational_notes": {
-    "production_recommendations": [
-      "Do NOT store SUPABASE_SERVICE_KEY in client or committed files; use Codex environment variables or a secure secret store.",
-      "Use SERVER_WRAP_KEY only as an interim approach. For higher assurance, store wrapping keys in a strong secrets manager accessible only to the server runtime.",
-      "Rotate SERVER_WRAP_KEY regularly and record key rotation events."
-    ],
-    "audit_requirements": [
-      "Every admin action that affects user data or keys must create an audit_logs entry.",
-      "Audit logs must include actor_id, target_user_id, action, details, timestamp."
-    ],
-    "privacy_notes": [
-      "By default, admin endpoints return metadata only (no plaintext).",
-      "Plaintext unwrapping must be manual, approved, and logged with justification."
-    ]
-  },
-  "notes_for_contributor": "This JSON is intended to be used as a repository creation & implementation brief. Implementers should follow the specified RLS policies, never expose service_role key to clients, and use the Codex-provided environment variables for secrets. Replace SERVER_WRAP_KEY practice with a formal secret management approach when scaling to production."
+  "notes": "위 매뉴얼은 요구사항을 바탕으로 한 실행 계획입니다. Supabase가 제공하는 특정 동작(예: 이메일 인증과 관련된 자동 세션 발급 여부)에 따라 일부 흐름(가입 후 쿠키 발급 시점)은 Supabase 내부 동작을 확인한 뒤 약간 조정해야 할 수 있습니다. Supabase가 자동으로 이메일 인증 후 세션을 발급하지 않는 환경이면, /auth/verify 엔드포인트에서 서버가 직접 세션(쿠키)를 발급하도록 구현하면 됩니다."
 }
