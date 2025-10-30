@@ -1,10 +1,10 @@
 // src/routes/diaries.ts
 import { Hono } from 'hono';
-import { requireAuth } from '../middleware/auth';
-import { AppError, handleRouteError } from '../lib/errors';
-import type { TApiResponse } from '../types/common/common.types';
-import type { IDiary, IDiaryCreateInput, IDiarySummary, IDiaryUpdateInput } from '../types/diary/diary.types';
-import { diaryService } from '../services/diary-service';
+import { requireAuth } from '@/middleware/auth';
+import { AppError, handleRouteError } from '@/lib/errors';
+import type { TApiResponse } from '@/types/common/common.types';
+import type { IDiary, IDiaryCreateInput, IDiarySummary, IDiaryUpdateInput } from '@/types/diary/diary.types';
+import { diaryService } from '@/services/diary-service';
 
 const diariesRouter = new Hono();
 

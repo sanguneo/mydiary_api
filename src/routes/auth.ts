@@ -1,12 +1,12 @@
 // routes/auth.ts
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { supabase } from '../lib/supabase';
-import { authService } from '../services/auth-service';
-import { setAuthCookies, clearAuthCookies } from '../lib/cookies';
-import { handleRouteError } from '../lib/errors';
-import type { TApiResponse } from '../types/common/common.types';
-import { authLogger } from '../lib/logger';
+import { supabase } from '@/lib/supabase';
+import { authService } from '@/services/auth-service';
+import { setAuthCookies, clearAuthCookies } from '@/lib/cookies';
+import { handleRouteError } from '@/lib/errors';
+import type { TApiResponse } from '@/types/common/common.types';
+import { authLogger } from '@/lib/logger';
 
 const signupSchema = z.object({
   email: z.string().email(),

@@ -5,8 +5,8 @@ import {
   type PostgrestResponse,
   type PostgrestSingleResponse,
 } from '@supabase/supabase-js';
-import env from '../config/env';
-import { AppError } from './errors';
+import env from '@/config/env';
+import { AppError } from '@/lib/errors';
 
 export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: {

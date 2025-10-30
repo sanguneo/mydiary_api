@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
-import { profileService } from '../services/profile-service';
-import { AppError, handleRouteError } from '../lib/errors';
-import type { TApiResponse } from '../types/common/common.types';
-import type { IProfile } from '../types/profile/profile.types';
+import { requireAuth } from '@/middleware/auth';
+import { profileService } from '@/services/profile-service';
+import { AppError, handleRouteError } from '@/lib/errors';
+import type { TApiResponse } from '@/types/common/common.types';
+import type { IProfile } from '@/types/profile/profile.types';
 
 const updateSchema = z.object({
   display_name: z.string().max(120).optional(),

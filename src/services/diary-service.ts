@@ -3,15 +3,15 @@ import bcrypt from 'bcryptjs';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import weekday from 'dayjs/plugin/weekday';
-import { AppError } from '../lib/errors';
-import { supabase, wrapQuery } from '../lib/supabase';
+import { AppError } from '@/lib/errors';
+import { supabase, wrapQuery } from '@/lib/supabase';
 import type {
   IDiary,
   IDiaryCreateInput,
   IDiaryUpdateInput,
   IDiarySummary,
   IDiaryListFilter,
-} from '../types/diary/diary.types';
+} from '@/types/diary/diary.types';
 
 dayjs.extend(isoWeek);
 dayjs.extend(weekday);

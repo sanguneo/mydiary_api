@@ -1,6 +1,6 @@
-import env from './config/env';
-import { app } from './app';
-import { logger } from './lib/logger';
+import env from '@/config/env';
+import { app } from '@/app';
+import { logger } from '@/lib/logger';
 
 // ──────────────────────────────────────────────
 // 서버 설정

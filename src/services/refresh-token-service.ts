@@ -1,4 +1,4 @@
-import { supabase, wrapQuery } from '../lib/supabase';
+import { supabase, wrapQuery } from '@/lib/supabase';
 
 export interface IRefreshTokenRecord {
   id: string;

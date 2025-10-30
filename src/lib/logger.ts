@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import dayjs from 'dayjs';
 import pino from 'pino';
-import env from '../config/env';
+import env from '@/config/env';
 
 const LOG_DIRECTORY = join(process.cwd(), 'log');
 

@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { nanoid } from 'nanoid';
 import { performance } from 'perf_hooks';
-import { accessLogger } from '../lib/logger';
+import { accessLogger } from '@/lib/logger';
 
 export const requestLogger: MiddlewareHandler = async (c, next) => {
   const start = performance.now();

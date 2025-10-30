@@ -1,10 +1,10 @@
 // routes/uploads.ts
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
-import { storageService } from '../services/storage-service';
-import { handleRouteError } from '../lib/errors';
-import type { TApiResponse } from '../types/common/common.types';
+import { requireAuth } from '@/middleware/auth';
+import { storageService } from '@/services/storage-service';
+import { handleRouteError } from '@/lib/errors';
+import type { TApiResponse } from '@/types/common/common.types';
 
 const presignSchema = z.object({
   filename: z.string().min(1),

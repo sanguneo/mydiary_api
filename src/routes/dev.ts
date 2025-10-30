@@ -1,11 +1,11 @@
 // routes/dev.ts
 import { Hono } from 'hono';
-import { createAccessToken, createRefreshToken } from '../lib/tokens';
-import { requireAuth } from '../middleware/auth';
-import { supabase, wrapQuery } from '../lib/supabase';
-import { AppError, handleRouteError } from '../lib/errors';
-import type { TApiResponse } from '../types/common/common.types';
-import type { IAuthenticatedUser } from '../types/auth/auth.types';
+import { createAccessToken, createRefreshToken } from '@/lib/tokens';
+import { requireAuth } from '@/middleware/auth';
+import { supabase, wrapQuery } from '@/lib/supabase';
+import { AppError, handleRouteError } from '@/lib/errors';
+import type { TApiResponse } from '@/types/common/common.types';
+import type { IAuthenticatedUser } from '@/types/auth/auth.types';
 
 const devRouter = new Hono();
 

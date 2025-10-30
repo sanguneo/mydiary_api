@@ -1,8 +1,8 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { createHash, randomUUID } from 'crypto';
-import env from '../config/env';
-import type { IAuthenticatedUser } from '../types/auth/auth.types';
-import { AppError } from './errors';
+import env from '@/config/env';
+import type { IAuthenticatedUser } from '@/types/auth/auth.types';
+import { AppError } from '@/lib/errors';
 
 const encoder = new TextEncoder();
 const secret = encoder.encode(env.JWT_SECRET);

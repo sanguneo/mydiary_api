@@ -1,5 +1,5 @@
-import { AppError } from '../lib/errors';
-import { supabase } from '../lib/supabase';
+import { AppError } from '@/lib/errors';
+import { supabase } from '@/lib/supabase';
 
 export class StorageService {
   async createPresignedUploadUrl(args: { bucket: string; filename: string; contentType: string }) {

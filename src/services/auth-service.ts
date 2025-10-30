@@ -1,19 +1,19 @@
 // src/services/auth-service.ts
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { authLogger } from '../lib/logger';
-import { AppError } from '../lib/errors';
-import { REFRESH_COOKIE_NAME } from '../lib/cookies';
-import { supabase, wrapQuery } from '../lib/supabase';
+import { authLogger } from '@/lib/logger';
+import { AppError } from '@/lib/errors';
+import { REFRESH_COOKIE_NAME } from '@/lib/cookies';
+import { supabase, wrapQuery } from '@/lib/supabase';
 import {
   createAccessToken,
   createRefreshToken,
   hashToken,
   verifyRefreshToken,
-} from '../lib/tokens';
-import type { IAuthenticatedUser, ITokenPair } from '../types/auth/auth.types';
-import { profileService } from './profile-service';
-import { refreshTokenService } from './refresh-token-service';
+} from '@/lib/tokens';
+import type { IAuthenticatedUser, ITokenPair } from '@/types/auth/auth.types';
+import { profileService } from '@/services/profile-service';
+import { refreshTokenService } from '@/services/refresh-token-service';
 
 export class AuthService {
   /**

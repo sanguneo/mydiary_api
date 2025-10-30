@@ -1,6 +1,6 @@
-import { AppError } from '../lib/errors';
-import { supabase, wrapQuery } from '../lib/supabase';
-import type { IProfile } from '../types/profile/profile.types';
+import { AppError } from '@/lib/errors';
+import { supabase, wrapQuery } from '@/lib/supabase';
+import type { IProfile } from '@/types/profile/profile.types';
 
 export class ProfileService {
   async ensureProfile(userId: string, email?: string | null): Promise<void> {

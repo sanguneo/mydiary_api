@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
-import type { ITokenPair } from '../types/auth/auth.types';
-import { getAccessTokenTtlSeconds, getRefreshTokenTtlSeconds } from './tokens';
+import type { ITokenPair } from '@/types/auth/auth.types';
+import { getAccessTokenTtlSeconds, getRefreshTokenTtlSeconds } from '@/lib/tokens';
 
 const accessCookieName = 'app_access';
 const refreshCookieName = 'app_refresh';

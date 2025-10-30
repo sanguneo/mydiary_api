@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { logger } from './logger';
-import type { IErrorContext, TApiErrorResponse } from '../types/common/common.types';
+import { logger } from '@/lib/logger';
+import type { IErrorContext, TApiErrorResponse } from '@/types/common/common.types';
 
 /**
  * AppError는 서비스 계층에서 일관된 에러 표현을 제공하기 위한 커스텀 에러입니다.
