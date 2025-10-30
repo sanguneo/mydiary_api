@@ -1,5 +1,7 @@
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { logger } from './logger';
+import type { IErrorContext, TApiErrorResponse } from '../types/common/common.types';
 
 /**
  * AppError는 서비스 계층에서 일관된 에러 표현을 제공하기 위한 커스텀 에러입니다.
@@ -12,18 +14,20 @@ export class AppError extends Error {
   readonly code: string;
   readonly details?: unknown;
 
-  constructor(message: string, options?: { status?: number; code?: string; details?: unknown; cause?: unknown }) {
+  constructor(
+    message: string,
+    options: { status?: number; code?: string; details?: unknown; cause?: unknown } = {},
+  ) {
     super(message);
     this.name = 'AppError';
-    this.status = options?.status ?? 500;
-    this.code = options?.code ?? 'internal_error';
-    this.details = options?.details;
-    if (options?.cause) {
+    this.status = options.status ?? 500;
+    this.code = options.code ?? 'internal_error';
+    this.details = options.details;
+    if (options.cause) {
       this.cause = options.cause;
     }
   }
 
-  /** AppError가 아닌 경우 fallback 정보로 감싸서 반환한다. */
   static normalize(
     error: unknown,
     fallback: { message: string; status?: number; code?: string; details?: unknown } = { message: 'Internal server error' },
@@ -31,13 +35,12 @@ export class AppError extends Error {
     if (error instanceof AppError) {
       return error;
     }
-    const normalized = new AppError(fallback.message, {
+    return new AppError(fallback.message, {
       status: fallback.status,
       code: fallback.code,
       details: fallback.details,
       cause: error instanceof Error ? error : undefined,
     });
-    return normalized;
   }
 }
 
@@ -53,21 +56,35 @@ export function handleRouteError(
   c: Context,
   error: unknown,
   fallback: { message: string; status?: number; code?: string; details?: unknown },
+  context: IErrorContext = {},
 ) {
   const appError = AppError.normalize(error, fallback);
-  const logPayload = appError.cause ?? error;
+  const requestContext: IErrorContext = {
+    requestId: c.get('requestId'),
+    path: c.req.path,
+    method: c.req.method,
+    userId: c.get('user')?.id,
+    ...context,
+  };
+
+  const logPayload = {
+    ...requestContext,
+    details: appError.details,
+    cause: appError.cause ?? (error instanceof Error ? error : undefined),
+  };
+
   if (appError.status >= 500) {
-    console.error(`[${appError.code}]`, logPayload);
+    logger.error(logPayload, appError.message);
   } else {
-    console.warn(`[${appError.code}]`, logPayload);
+    logger.warn(logPayload, appError.message);
   }
-  return c.json(
-    {
-      ok: false,
-      code: appError.code,
-      message: appError.message,
-      details: appError.details ?? null,
-    },
-    appError.status as ContentfulStatusCode,
-  );
+
+  const response: TApiErrorResponse = {
+    ok: false,
+    code: appError.code,
+    message: appError.message,
+    details: appError.details ?? null,
+  };
+
+  return c.json(response, appError.status as ContentfulStatusCode);
 }

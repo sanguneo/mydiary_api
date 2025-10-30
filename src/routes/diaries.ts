@@ -1,8 +1,10 @@
 // src/routes/diaries.ts
 import { Hono } from 'hono';
-import { diaryService } from '../services/diary-service';
-import type { DiaryCreateInput, DiaryUpdateInput } from '../types/diary';
 import { requireAuth } from '../middleware/auth';
+import { AppError, handleRouteError } from '../lib/errors';
+import type { TApiResponse } from '../types/common/common.types';
+import type { IDiary, IDiaryCreateInput, IDiarySummary, IDiaryUpdateInput } from '../types/diary/diary.types';
+import { diaryService } from '../services/diary-service';
 
 const diariesRouter = new Hono();
 
@@ -11,108 +13,175 @@ diariesRouter.use('*', requireAuth);
 
 // ✏️ 일기 작성
 diariesRouter.post('/', async (c) => {
-  const user = c.get('user');
+  try {
+    const user = c.get('user');
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
-
-  const body = await c.req.json<DiaryCreateInput>();
-  const diary = await diaryService.createDiary(user.id, body);
-  return c.json({ success: true, data: diary });
+    const body = await c.req.json<IDiaryCreateInput>();
+    const diary = await diaryService.createDiary(user.id, body);
+    return c.json<TApiResponse<IDiary>>({ ok: true, data: diary });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to create diary',
+      status: 500,
+      code: 'diary_create_failed',
+    });
+  }
 });
 
 // 📋 전체 목록 조회
 diariesRouter.get('/', async (c) => {
-  const user = c.get('user');
+  try {
+    const user = c.get('user');
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
-
-  const diaries = await diaryService.listDiaries(user.id);
-  return c.json({ success: true, data: diaries });
+    const diaries = await diaryService.listDiaries(user.id);
+    return c.json<TApiResponse<IDiary[]>>({ ok: true, data: diaries });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to fetch diaries',
+      status: 500,
+      code: 'diary_list_failed',
+    });
+  }
 });
 
 // 📋 조건별 목록 조회
 diariesRouter.get('/list', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const user = c.get('user');
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  const { from, to, month, day, offsetYear } = c.req.query();
+    const { from, to, month, day, offsetYear } = c.req.query();
 
-  const options = {
-    from,
-    to,
-    month,
-    day,
-    offsetYear: offsetYear ? Number(offsetYear) : undefined,
-  };
+    const options = {
+      from,
+      to,
+      month,
+      day,
+      offsetYear: offsetYear ? Number(offsetYear) : undefined,
+    };
 
-  const summaries = await diaryService.listDiarySummariesWithFilter(user.id, options);
-  return c.json({ success: true, data: summaries });
+    const summaries = await diaryService.listDiarySummariesWithFilter(user.id, options);
+    return c.json<TApiResponse<IDiarySummary[]>>({ ok: true, data: summaries });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to fetch diary summaries',
+      status: 500,
+      code: 'diary_filtered_list_failed',
+    });
+  }
 });
 
 // 📖 단일 조회
 diariesRouter.get('/:id', async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
+  try {
+    const user = c.get('user');
+    const id = c.req.param('id');
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  const diary = await diaryService.getDiary(user.id, id);
+    const diary = await diaryService.getDiary(user.id, id);
 
-  if (!diary) {
-    return c.json({ success: false, error: 'Diary not found' }, 404);
+    if (!diary) {
+      throw new AppError('Diary not found', { status: 404, code: 'diary_not_found' });
+    }
+
+    if (diary.is_locked && diary.lock_password_hash) {
+      throw new AppError('Diary is locked', { status: 403, code: 'diary_locked' });
+    }
+
+    return c.json<TApiResponse<IDiary>>({ ok: true, data: diary });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to fetch diary',
+      status: 500,
+      code: 'diary_fetch_failed',
+    });
   }
-
-  // 잠금 처리: 비밀번호 없는 단순 잠금은 접근 허용
-  if (diary.is_locked && diary.lock_password_hash) {
-    return c.json({ success: false, error: 'Diary is locked' }, 403);
-  }
-
-  return c.json({ success: true, data: diary });
 });
 
 // 🔓 잠금 해제 (비밀번호 입력)
 diariesRouter.post('/:id/unlock', async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
+  try {
+    const user = c.get('user');
+    const id = c.req.param('id');
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  const { password } = await c.req.json<{ password?: string }>();
+    const { password } = await c.req.json<{ password?: string }>();
 
-  const diary = await diaryService.getDiary(user.id, id);
-  if (!diary) {
-    return c.json({ success: false, error: 'Diary not found' }, 404);
+    const diary = await diaryService.getDiary(user.id, id);
+    if (!diary) {
+      throw new AppError('Diary not found', { status: 404, code: 'diary_not_found' });
+    }
+
+    const ok = await diaryService.unlockDiary(diary, password ?? '');
+    if (!ok) {
+      throw new AppError('Invalid password', { status: 403, code: 'diary_invalid_password' });
+    }
+
+    return c.json<TApiResponse<IDiary>>({ ok: true, data: diary });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to unlock diary',
+      status: 403,
+      code: 'diary_unlock_failed',
+    });
   }
-
-  const ok = await diaryService.unlockDiary(diary, password ?? '');
-  if (!ok) {
-    return c.json({ success: false, error: 'Invalid password' }, 403);
-  }
-
-  return c.json({ success: true, data: diary });
 });
 
 // 🛠️ 수정
 diariesRouter.patch('/:id', async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
+  try {
+    const user = c.get('user');
+    const id = c.req.param('id');
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  const body = await c.req.json<DiaryUpdateInput>();
-  const diary = await diaryService.updateDiary(user.id, id, body);
-  return c.json({ success: true, data: diary });
+    const body = await c.req.json<IDiaryUpdateInput>();
+    const diary = await diaryService.updateDiary(user.id, id, body);
+    return c.json<TApiResponse<IDiary>>({ ok: true, data: diary });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to update diary',
+      status: 500,
+      code: 'diary_update_failed',
+    });
+  }
 });
 
 // ❌ 삭제
 diariesRouter.delete('/:id', async (c) => {
-  const user = c.get('user');
-  const id = c.req.param('id');
+  try {
+    const user = c.get('user');
+    const id = c.req.param('id');
 
-  if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (!user) {
+      throw new AppError('Unauthorized', { status: 401, code: 'auth_required' });
+    }
 
-  await diaryService.deleteDiary(user.id, id);
-  return c.json({ success: true });
+    await diaryService.deleteDiary(user.id, id);
+    return c.json<TApiResponse<null>>({ ok: true, data: null });
+  } catch (error) {
+    return handleRouteError(c, error, {
+      message: 'Failed to delete diary',
+      status: 500,
+      code: 'diary_delete_failed',
+    });
+  }
 });
 
 export default diariesRouter;

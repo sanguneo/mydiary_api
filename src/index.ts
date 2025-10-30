@@ -1,5 +1,6 @@
 import env from './config/env';
 import { app } from './app';
+import { logger } from './lib/logger';
 
 // ──────────────────────────────────────────────
 // 서버 설정
@@ -11,19 +12,19 @@ const server = Bun.serve({
   port,
 });
 
-console.log(`✅ Hono server running on http://localhost:${port}`);
+logger.info({ port }, 'Hono server running');
 
 // ──────────────────────────────────────────────
 // Graceful Shutdown
 // ──────────────────────────────────────────────
 const shutdown = async () => {
-  console.log('\n🧹 Shutting down gracefully...');
+  logger.info('Shutting down gracefully...');
 
   try {
     // 1️⃣ FS Watch 종료
     if ((globalThis as any).__FS_WATCHER__) {
       await (globalThis as any).__FS_WATCHER__.close();
-      console.log('🪶 FS Watcher closed');
+      logger.info('FS Watcher closed');
     }
 
     // 2️⃣ SSE Controller 종료
@@ -33,10 +34,10 @@ const shutdown = async () => {
         try {
           ctrl.close?.();
         } catch (e) {
-          console.warn('⚠️ SSE controller close failed:', e);
+          logger.warn({ error: e }, 'SSE controller close failed');
         }
       }
-      console.log('🔌 SSE Controllers closed');
+      logger.info('SSE Controllers closed');
     }
 
     // 3️⃣ 자식 프로세스 종료
@@ -51,23 +52,23 @@ const shutdown = async () => {
             setTimeout(() => proc.kill('SIGKILL'), 2000);
           }
         } catch (err) {
-          console.warn('⚠️ Failed to kill process', err);
+          logger.warn({ error: err }, 'Failed to kill process');
         }
       }
-      console.log('💀 Child processes terminated');
+      logger.info('Child processes terminated');
     }
 
     // 4️⃣ Bun 서버 종료
     if (typeof server.stop === 'function') {
       await server.stop();
-      console.log('🧩 Server stopped gracefully');
+      logger.info('Server stopped gracefully');
     }
 
     // 5️⃣ 종료 완료
-    console.log('👋 Goodbye.');
+    logger.info('Goodbye.');
     process.exit(0);
   } catch (err) {
-    console.error('❌ Error during shutdown:', err);
+    logger.error({ error: err }, 'Error during shutdown');
     process.exit(1);
   }
 };

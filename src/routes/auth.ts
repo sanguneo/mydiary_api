@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabase';
 import { authService } from '../services/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../lib/cookies';
 import { handleRouteError } from '../lib/errors';
+import type { TApiResponse } from '../types/common/common.types';
+import { authLogger } from '../lib/logger';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -16,7 +18,15 @@ authRouter.post('/signup', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = signupSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ ok: false, message: 'Invalid payload', issues: parsed.error.flatten() }, 400);
+    return c.json<TApiResponse<null>>(
+      {
+        ok: false,
+        code: 'invalid_payload',
+        message: 'Invalid payload',
+        details: parsed.error.flatten(),
+      },
+      400,
+    );
   }
 
   const { email } = parsed.data;
@@ -28,17 +38,19 @@ authRouter.post('/signup', async (c) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${process.env.BACKEND_ORIGIN ?? 'https://api.example.com'}/auth/verify`,
+        emailRedirectTo: `${process.env.BACKEND_ORIGIN ?? 'https://api.example.com'}/api/auth/verify`,
         shouldCreateUser: true,
       },
     });
-    if (error) console.warn('signInWithOtp failed:', error);
+    if (error) {
+      authLogger.warn({ email, error }, 'signInWithOtp failed after signup');
+    }
 
     // UX 목표: 메일 전송 여부와 관계없이 성공 응답
-    return c.json({
+    return c.json<TApiResponse<{ user_id: string | null }>>({
       ok: true,
+      data: { user_id: userId ?? null },
       message: 'Verification email sent (if configured)',
-      user_id: userId ?? null,
     });
   } catch (error) {
     return handleRouteError(c, error, {
@@ -56,7 +68,10 @@ authRouter.get('/verify', async (c) => {
   const email = c.req.query('email');
   const type = (c.req.query('type') as 'signup' | 'email_change' | 'recovery' | undefined) ?? 'signup';
   if (!token || !email) {
-    return c.json({ ok: false, message: 'Missing token or email' }, 400);
+    return c.json<TApiResponse<null>>(
+      { ok: false, code: 'verification_missing_params', message: 'Missing token or email' },
+      400,
+    );
   }
 
   try {
@@ -85,7 +100,7 @@ authRouter.post('/refresh', async (c) => {
   try {
     const tokens = await authService.refreshSession(c);
     setAuthCookies(c, tokens);
-    return c.json({ ok: true, message: 'Session refreshed' });
+    return c.json<TApiResponse<null>>({ ok: true, data: null, message: 'Session refreshed' });
   } catch (error) {
     return handleRouteError(c, error, {
       message: 'Failed to refresh session',
@@ -98,12 +113,12 @@ authRouter.post('/refresh', async (c) => {
 authRouter.post('/logout', async (c) => {
   try {
     await authService.logout(c);
-  } catch (e) {
-    console.warn('Logout warning', e);
+  } catch (error) {
+    authLogger.warn({ error }, 'logout warning');
   }
   // clear cookies for client
   clearAuthCookies(c);
-  return c.json({ ok: true });
+  return c.json<TApiResponse<null>>({ ok: true, data: null });
 });
 
 export default authRouter;
