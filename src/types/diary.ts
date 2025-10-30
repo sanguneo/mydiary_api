@@ -23,7 +23,7 @@ export type DiaryPublic = Omit<Diary, 'lock_password_hash'>;
  * 일기 생성 시 입력 필드
  */
 export interface DiaryCreateInput {
-  title: string;
+  title?: string;
   content: string;
   is_locked?: boolean;
   lock_password?: string; // 평문 입력받음 → bcrypt 해시 저장

@@ -29,7 +29,7 @@ export const diaryService = {
       .from('diaries')
       .insert({
         user_id: userId,
-        title,
+        title: title ?? content.slice(0, 20),
         content,
         is_locked,
         lock_password_hash,

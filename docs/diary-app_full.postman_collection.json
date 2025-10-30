@@ -1,0 +1,442 @@
+{
+  "info": {
+    "name": "Diary App API",
+    "_postman_id": "4a1a8dc9-2c3b-44fa-b6e9-2e8b7a77c220",
+    "description": "Hono + Supabase 기반 일기 어플 백엔드 API 컬렉션",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:7200/healthz",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "7200",
+          "path": [
+            "healthz"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup (send magic link)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/auth/signup",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "auth",
+                "signup"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Email Token",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/auth/verify?token={{token}}&email={{email}}",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "auth",
+                "verify"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{token}}"
+                },
+                {
+                  "key": "email",
+                  "value": "{{email}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Refresh Session",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:7200/auth/refresh",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "http://localhost:7200/auth/logout",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/users/me",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"display_name\": \"유온\",\n  \"settings\": { \"theme\": \"dark\" }\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/users/me",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Uploads",
+      "item": [
+        {
+          "name": "Create Presigned Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"photo.png\",\n  \"contentType\": \"image/png\",\n  \"bucket\": \"content\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/uploads/presign",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "uploads",
+                "presign"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Diaries",
+      "item": [
+        {
+          "name": "Create Diary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My First Diary\",\n  \"content\": \"오늘은 좋은 하루였어요.\",\n  \"is_locked\": false\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/diaries",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Diaries",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/diaries",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter Diary List",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/diaries/list?month=2025-10",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "2025-10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Diary by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/diaries/{{id}}",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries",
+                "{{id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unlock Diary (with password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"1234\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/diaries/{{id}}/unlock",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries",
+                "{{id}}",
+                "unlock"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Diary",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"수정된 제목\",\n  \"content\": \"내용 업데이트\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/diaries/{{id}}",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries",
+                "{{id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Diary",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "http://localhost:7200/diaries/{{id}}",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "diaries",
+                "{{id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dev (for local testing)",
+      "item": [
+        {
+          "name": "Issue Dev Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"local@test.com\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:7200/api/dev/token",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "api",
+                "dev",
+                "token"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Token",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:7200/api/dev/verify",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7200",
+              "path": [
+                "api",
+                "dev",
+                "verify"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "id",
+      "value": ""
+    }
+  ]
+}

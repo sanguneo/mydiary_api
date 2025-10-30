@@ -1,4 +1,6 @@
 type BunServer = {
-  serve: (options: { fetch: (request: Request) => Response | Promise<Response>; port: number }) => unknown;
+  serve: (options: { fetch: (request: Request) => Response | Promise<Response>; port: number }) => any;
+  env: any;
+  spawn: any;
 };
-declare const Bun: undefined | BunServer;
+declare const Bun: BunServer;
