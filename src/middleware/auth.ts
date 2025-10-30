@@ -1,8 +1,8 @@
 import type { MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { ACCESS_COOKIE_NAME } from '../lib/cookies';
-import { verifyAccessToken } from '../lib/tokens';
-import { AppError, handleRouteError } from '../lib/errors';
+import { ACCESS_COOKIE_NAME } from '@/lib/cookies';
+import { verifyAccessToken } from '@/lib/tokens';
+import { AppError, handleRouteError } from '@/lib/errors';
 
 export const requireAuth: MiddlewareHandler = async (c, next) => {
   const token = getCookie(c, ACCESS_COOKIE_NAME);

@@ -1,7 +1,6 @@
-import { supabase } from '../lib/supabase';
-import { AppError } from '../lib/errors';
+import { supabase, wrapQuery } from '@/lib/supabase';
 
-export interface RefreshTokenRecord {
+export interface IRefreshTokenRecord {
   id: string;
   user_id: string;
   token_hash: string;
@@ -13,35 +12,29 @@ export interface RefreshTokenRecord {
 
 export class RefreshTokenService {
   async saveToken(args: { userId: string; tokenId: string; tokenHash: string; expiresAt: Date }) {
-    const { error } = await supabase.from('refresh_tokens').insert({
-      id: args.tokenId,
-      user_id: args.userId,
-      token_hash: args.tokenHash,
-      expires_at: args.expiresAt.toISOString(),
-    });
-    if (error) {
-      throw new AppError('Failed to store refresh token', {
-        status: 500,
-        code: 'refresh_token_store_failed',
-        cause: error,
-      });
-    }
+    await wrapQuery<null | IRefreshTokenRecord[]>(
+      async () =>
+        await supabase.from('refresh_tokens').insert({
+          id: args.tokenId,
+          user_id: args.userId,
+          token_hash: args.tokenHash,
+          expires_at: args.expiresAt.toISOString(),
+        }),
+      { message: 'Failed to store refresh token', code: 'refresh_token_store_failed', status: 500 },
+    );
   }
 
   async getToken(tokenId: string) {
-    const { data, error } = await supabase
-      .from('refresh_tokens')
-      .select('*')
-      .eq('id', tokenId)
-      .maybeSingle<RefreshTokenRecord>();
-    if (error) {
-      throw new AppError('Failed to load refresh token', {
-        status: 500,
-        code: 'refresh_token_lookup_failed',
-        cause: error,
-      });
-    }
-    return data ?? null;
+    const record = await wrapQuery<IRefreshTokenRecord | null>(
+      async () =>
+        await supabase
+          .from('refresh_tokens')
+          .select('*')
+          .eq('id', tokenId)
+          .maybeSingle<IRefreshTokenRecord>(),
+      { message: 'Failed to load refresh token', code: 'refresh_token_lookup_failed', status: 500 },
+    );
+    return record ?? null;
   }
 
   async revokeToken(tokenId: string, replacedBy?: string) {
@@ -49,14 +42,16 @@ export class RefreshTokenService {
     if (replacedBy) {
       updates.replaced_by = replacedBy;
     }
-    const { error } = await supabase.from('refresh_tokens').update(updates).eq('id', tokenId);
-    if (error) {
-      throw new AppError('Failed to revoke refresh token', {
-        status: 500,
-        code: 'refresh_token_revoke_failed',
-        cause: error,
-      });
-    }
+    await wrapQuery<IRefreshTokenRecord | null>(
+      async () =>
+        await supabase
+          .from('refresh_tokens')
+          .update(updates)
+          .eq('id', tokenId)
+          .select('id')
+          .maybeSingle(),
+      { message: 'Failed to revoke refresh token', code: 'refresh_token_revoke_failed', status: 500 },
+    );
   }
 }
 

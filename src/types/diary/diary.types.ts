@@ -1,9 +1,9 @@
-// src/types/diary.ts
+// src/types/diary/diary.types.ts
 
 /**
  * DB 모델
  */
-export interface Diary {
+export interface IDiary {
   id: string;
   user_id: string;
   title: string;
@@ -17,32 +17,32 @@ export interface Diary {
 /**
  * Client-facing DTO (비밀번호 해시 제외)
  */
-export type DiaryPublic = Omit<Diary, 'lock_password_hash'>;
+export type TDiaryPublic = Omit<IDiary, 'lock_password_hash'>;
 
 /**
  * 일기 생성 시 입력 필드
  */
-export interface DiaryCreateInput {
+export interface IDiaryCreateInput {
   title?: string;
   content: string;
   is_locked?: boolean;
-  lock_password?: string; // 평문 입력받음 → bcrypt 해시 저장
+  lock_password?: string;
 }
 
 /**
  * 일기 수정 시 입력 필드
  */
-export interface DiaryUpdateInput {
+export interface IDiaryUpdateInput {
   title?: string;
   content?: string;
   is_locked?: boolean;
-  lock_password?: string | null; // null이면 기존 해시 제거
+  lock_password?: string | null;
 }
 
 /**
  * 일기 리스트(요약)용 DTO
  */
-export interface DiarySummary {
+export interface IDiarySummary {
   id: string;
   title: string;
   is_locked: boolean;
@@ -52,15 +52,11 @@ export interface DiarySummary {
 
 /**
  * 일기 리스트 조회용 필터 옵션
- * - from/to: 명시적 기간
- * - month: 월별
- * - day: 일별
- * - offsetYear: 1년전, 2년전 등 상대적 조회
  */
-export interface DiaryListFilter {
+export interface IDiaryListFilter {
   from?: string;
   to?: string;
-  month?: string; // YYYY-MM
-  day?: string;   // YYYY-MM-DD
-  offsetYear?: number; // ex: 1 → 1년 전 같은 주/요일
+  month?: string;
+  day?: string;
+  offsetYear?: number;
 }

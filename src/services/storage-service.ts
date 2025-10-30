@@ -1,4 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { AppError } from '@/lib/errors';
+import { supabase } from '@/lib/supabase';
 
 export class StorageService {
   async createPresignedUploadUrl(args: { bucket: string; filename: string; contentType: string }) {
@@ -6,7 +7,16 @@ export class StorageService {
       upsert: true,
     });
     if (error || !data) {
-      throw new Error(`Failed to create upload URL: ${error?.message ?? 'unknown error'}`);
+      throw new AppError('Failed to create upload URL', {
+        status: 500,
+        code: 'storage_presign_failed',
+        details: {
+          bucket: args.bucket,
+          filename: args.filename,
+          supabase: error?.message ?? null,
+        },
+        cause: error ?? undefined,
+      });
     }
     return {
       url: data.signedUrl,

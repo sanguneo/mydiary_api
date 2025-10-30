@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
-import type { TokenPair } from '../types/auth';
-import { getAccessTokenTtlSeconds, getRefreshTokenTtlSeconds } from './tokens';
+import type { ITokenPair } from '@/types/auth/auth.types';
+import { getAccessTokenTtlSeconds, getRefreshTokenTtlSeconds } from '@/lib/tokens';
 
 const accessCookieName = 'app_access';
 const refreshCookieName = 'app_refresh';
@@ -16,7 +16,7 @@ function getCookieCommonOptions() {
   };
 }
 
-export function setAuthCookies(c: Context, tokens: TokenPair) {
+export function setAuthCookies(c: Context, tokens: ITokenPair) {
   const common = getCookieCommonOptions();
   setCookie(c, accessCookieName, tokens.accessToken, {
     ...common,
@@ -24,7 +24,7 @@ export function setAuthCookies(c: Context, tokens: TokenPair) {
   });
   setCookie(c, refreshCookieName, tokens.refreshToken, {
     ...common,
-    path: '/auth/refresh',
+    path: '/api/auth/refresh',
     maxAge: getRefreshTokenTtlSeconds(),
   });
 }
@@ -34,7 +34,7 @@ export function clearAuthCookies(c: Context) {
   deleteCookie(c, accessCookieName, common);
   deleteCookie(c, refreshCookieName, {
     ...common,
-    path: '/auth/refresh',
+    path: '/api/auth/refresh',
   });
 }
 

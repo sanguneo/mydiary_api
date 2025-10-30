@@ -1,18 +1,19 @@
 // src/services/auth-service.ts
-import { supabase } from '../lib/supabase';
+import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
+import { authLogger } from '@/lib/logger';
+import { AppError } from '@/lib/errors';
+import { REFRESH_COOKIE_NAME } from '@/lib/cookies';
+import { supabase, wrapQuery } from '@/lib/supabase';
 import {
   createAccessToken,
   createRefreshToken,
   hashToken,
   verifyRefreshToken,
-} from '../lib/tokens';
-import type { AuthenticatedUser, TokenPair } from '../types/auth';
-import { profileService } from './profile-service';
-import { refreshTokenService } from './refresh-token-service';
-import type { Context } from 'hono';
-import { getCookie } from 'hono/cookie';
-import { REFRESH_COOKIE_NAME } from '../lib/cookies';
-import { AppError } from '../lib/errors';
+} from '@/lib/tokens';
+import type { IAuthenticatedUser, ITokenPair } from '@/types/auth/auth.types';
+import { profileService } from '@/services/profile-service';
+import { refreshTokenService } from '@/services/refresh-token-service';
 
 export class AuthService {
   /**
@@ -27,7 +28,12 @@ export class AuthService {
         redirectTo: undefined,
       });
       if (error) {
-        throw error;
+        throw new AppError('Failed to invite user', {
+          status: 500,
+          code: 'supabase_error',
+          details: { scope: 'auth.admin.inviteUserByEmail', email },
+          cause: error,
+        });
       }
       const user = data.user;
       if (!user) {
@@ -37,11 +43,12 @@ export class AuthService {
         });
       }
       await profileService.ensureProfile(user.id, user.email);
+      authLogger.info({ email, userId: user.id }, 'verification email sent via invite');
       return user.id;
     } catch (inviteErr) {
       // invite 실패하더라도 UX 목표는 "메일을 보냈다"이므로 폴백으로 기존 사용자 확인/재전송 시도
       const reason = inviteErr instanceof Error ? inviteErr.message : String(inviteErr);
-      console.warn('inviteUserByEmail failed (fallback to lookup):', reason);
+      authLogger.warn({ email, reason }, 'inviteUserByEmail failed, falling back to lookup');
     }
 
     // 2) 폴백: profiles 테이블 우선 조회 -> admin.listUsers 폴백
@@ -59,8 +66,8 @@ export class AuthService {
     // 프로필 보장
     try {
       await profileService.ensureProfile(found.id, found.email);
-    } catch (e) {
-      console.warn('ensureProfile failed in signup fallback', e);
+    } catch (error) {
+      authLogger.warn({ email, error }, 'ensureProfile failed during signup fallback');
     }
 
     // 기존 사용자가 있으면 user id 반환 (메일은 invite 시도에서 실패했을 수 있으나 UX상 "메일 발송 시도"로 처리)
@@ -86,7 +93,12 @@ export class AuthService {
       });
 
       if (error) {
-        throw new Error(error.message ?? 'Failed to verify OTP');
+        throw new AppError(error.message ?? 'Failed to verify OTP', {
+          status: 400,
+          code: 'verification_failed',
+          details: { scope: 'auth.verifyOtp', email },
+          cause: error,
+        });
       }
 
       // Supabase가 user를 반환하면 그걸 사용
@@ -102,6 +114,8 @@ export class AuthService {
           role: (user.user_metadata as Record<string, unknown> | null)?.role as string | undefined,
         });
 
+        authLogger.info({ email, userId: user.id }, 'email verified via OTP');
+
         return { tokens, needsDisplayName };
       }
       // 만약 verifyOtp가 user를 반환하지 않는 경우 아래 폴백으로 처리
@@ -109,7 +123,7 @@ export class AuthService {
       // OTP 검증 실패일 수 있지만, 일부 설정에서는 verify가 실패하더라도 user가 이미 생성되어 있거나
       // 다른 흐름으로 생성이 필요할 수 있다. 여기서는 폴백으로 계속 진행.
       const reason = otpErr instanceof Error ? otpErr.message : String(otpErr);
-      console.warn('verifyOtp returned error or no user (fallback):', reason);
+      authLogger.warn({ email, reason }, 'verifyOtp failed or user missing, attempting fallback');
     }
 
     // 폴백 흐름: user 존재 여부 확인 -> 없으면 createUser -> profile 생성 -> 토큰 발급
@@ -134,13 +148,14 @@ export class AuthService {
           email: createdUser.email ?? email,
           role: (createdUser.user_metadata as Record<string, unknown> | null)?.role as string | undefined,
         });
+        authLogger.info({ email, userId: createdUser.id }, 'user created during verification fallback');
         return { tokens, needsDisplayName: true };
       } catch (createErr) {
-        console.error('createUser fallback failed', createErr);
-        throw new AppError('Failed to verify email', {
+        authLogger.error({ email, error: createErr }, 'createUser fallback failed');
+        throw AppError.normalize(createErr, {
+          message: 'Failed to verify email',
           status: 400,
           code: 'verification_failed',
-          cause: createErr,
         });
       }
     }
@@ -156,10 +171,12 @@ export class AuthService {
       role: (found.user_metadata as Record<string, unknown> | null)?.role as string | undefined,
     });
 
+    authLogger.info({ email, userId: found.id }, 'email verified using fallback user');
+
     return { tokens, needsDisplayName };
   }
 
-  async issueTokensForUser(user: AuthenticatedUser): Promise<TokenPair> {
+  async issueTokensForUser(user: IAuthenticatedUser): Promise<ITokenPair> {
     try {
       const access = await createAccessToken(user);
       const refresh = await createRefreshToken(user);
@@ -169,13 +186,15 @@ export class AuthService {
         tokenHash: hashToken(refresh.token),
         expiresAt: refresh.expiresAt,
       });
-      return {
+      const tokens: ITokenPair = {
         accessToken: access.token,
         refreshToken: refresh.token,
         refreshTokenId: refresh.jti,
         accessExpiresAt: access.expiresAt,
         refreshExpiresAt: refresh.expiresAt,
       };
+      authLogger.info({ userId: user.id }, 'issued new token pair');
+      return tokens;
     } catch (error) {
       throw AppError.normalize(error, {
         message: 'Failed to issue tokens',
@@ -210,13 +229,14 @@ export class AuthService {
 
     const userId = payload.sub;
     const profile = await profileService.getProfile(userId);
-    const user: AuthenticatedUser = {
+    const user: IAuthenticatedUser = {
       id: userId,
       email: payload.email,
       role: profile?.role ?? payload.role,
     };
     const tokens = await this.issueTokensForUser(user);
     await refreshTokenService.revokeToken(record.id, tokens.refreshTokenId);
+    authLogger.info({ userId }, 'session refreshed');
     // 쿠키 세팅은 호출부(라우터)에서 setAuthCookies(c, tokens)로 수행하거나,
     // 원래 스타일을 유지하려면 여기서 setAuthCookies를 호출(원래 코드에선 라우터에서 호출).
     return tokens;
@@ -229,19 +249,29 @@ export class AuthService {
         const payload = await verifyRefreshToken(refreshToken);
         await refreshTokenService.revokeToken(payload.jti);
       } catch (error) {
-        console.warn('Failed to revoke refresh token on logout', error);
+        authLogger.warn({ error }, 'failed to revoke refresh token on logout');
       }
     }
+    authLogger.info({ userId: c.get('user')?.id }, 'user logged out');
     // 쿠키 삭제는 라우터에서 clearAuthCookies 또는 setAuthCookies(null) 등으로 처리
   }
 
   // Helper: find user by email: profiles -> admin.listUsers
   private async findUserByEmail(email: string): Promise<any | null> {
     try {
-      const { data: profile, error } = await supabase.from('profiles').select('id, email, display_name').eq('email', email).limit(1).maybeSingle();
-      if (!error && profile) return profile;
-    } catch (e) {
-      // ignore and fallback
+    const profile = await wrapQuery<any | null>(
+      async () =>
+        await supabase
+          .from('profiles')
+          .select('id, email, display_name')
+          .eq('email', email)
+          .limit(1)
+          .maybeSingle(),
+      { message: 'Failed to lookup profile by email', code: 'profile_lookup_failed', status: 500 },
+    );
+      if (profile) return profile;
+    } catch (error) {
+      authLogger.warn({ email, error }, 'profile lookup failed, continuing to admin lookup');
     }
 
     try {
@@ -259,8 +289,8 @@ export class AuthService {
         if (users.length < perPage) break;
         page++;
       }
-    } catch (err) {
-      // ignore
+    } catch (error) {
+      authLogger.warn({ email, error }, 'admin listUsers lookup failed');
     }
     return null;
   }

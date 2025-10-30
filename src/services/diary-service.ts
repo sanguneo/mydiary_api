@@ -3,14 +3,15 @@ import bcrypt from 'bcryptjs';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import weekday from 'dayjs/plugin/weekday';
-import { supabase } from '../lib/supabase';
+import { AppError } from '@/lib/errors';
+import { supabase, wrapQuery } from '@/lib/supabase';
 import type {
-  Diary,
-  DiaryCreateInput,
-  DiaryUpdateInput,
-  DiarySummary,
-  DiaryListFilter,
-} from '../types/diary';
+  IDiary,
+  IDiaryCreateInput,
+  IDiaryUpdateInput,
+  IDiarySummary,
+  IDiaryListFilter,
+} from '@/types/diary/diary.types';
 
 dayjs.extend(isoWeek);
 dayjs.extend(weekday);
@@ -19,54 +20,63 @@ export const diaryService = {
   /**
    * ✏️ 새 일기 작성
    */
-  async createDiary(userId: string, input: DiaryCreateInput): Promise<Diary> {
+  async createDiary(userId: string, input: IDiaryCreateInput): Promise<IDiary> {
     const { title, content, is_locked = false, lock_password } = input;
 
     const lock_password_hash =
       is_locked && lock_password ? await bcrypt.hash(lock_password, 10) : null;
 
-    const { data, error } = await supabase
-      .from('diaries')
-      .insert({
-        user_id: userId,
-        title: title ?? content.slice(0, 20),
-        content,
-        is_locked,
-        lock_password_hash,
-      })
-      .select()
-      .single();
+    const diary = await wrapQuery<IDiary>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .insert({
+            user_id: userId,
+            title: title ?? content.slice(0, 20),
+            content,
+            is_locked,
+            lock_password_hash,
+          })
+          .select()
+          .single(),
+      { message: 'Failed to create diary', code: 'diary_create_failed' },
+    );
 
-    if (error) throw new Error(error.message);
-    return data;
+    return diary;
   },
 
   /**
    * 📋 전체 일기 목록 조회 (본문 포함)
    */
-  async listDiaries(userId: string): Promise<Diary[]> {
-    const { data, error } = await supabase
-      .from('id, title, is_locked, created_at, updated_at')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+  async listDiaries(userId: string): Promise<IDiary[]> {
+    const diaries = await wrapQuery<IDiary[] | null>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
+      { message: 'Failed to list diaries', code: 'diary_list_failed' },
+    );
 
-    if (error) throw new Error(error.message);
-    return data ?? [];
+    return diaries ?? [];
   },
 
   /**
    * 📃 요약 리스트 조회 (가벼운 목록)
    */
-  async listDiarySummaries(userId: string): Promise<DiarySummary[]> {
-    const { data, error } = await supabase
-      .from('diaries')
-      .select('id, title, is_locked, created_at, updated_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+  async listDiarySummaries(userId: string): Promise<IDiarySummary[]> {
+    const summaries = await wrapQuery<IDiarySummary[] | null>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .select('id, title, is_locked, created_at, updated_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
+      { message: 'Failed to list diary summaries', code: 'diary_summary_list_failed' },
+    );
 
-    if (error) throw new Error(error.message);
-    return data ?? [];
+    return summaries ?? [];
   },
 
   /**
@@ -75,8 +85,8 @@ export const diaryService = {
    */
   async listDiarySummariesWithFilter(
     userId: string,
-    options: DiaryListFilter,
-  ): Promise<DiarySummary[]> {
+    options: IDiaryListFilter,
+  ): Promise<IDiarySummary[]> {
     let fromDate: string | undefined;
     let toDate: string | undefined;
 
@@ -112,43 +122,51 @@ export const diaryService = {
       toDate = targetWeekday.endOf('day').toISOString();
     }
 
-    let query = supabase
-      .from('diaries')
-      .select('id, title, is_locked, created_at, updated_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    const summaries = await wrapQuery<IDiarySummary[] | null>(
+      async () => {
+        let builder = supabase
+          .from('diaries')
+          .select('id, title, is_locked, created_at, updated_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
 
-    if (fromDate && toDate) {
-      query = query.gte('created_at', fromDate).lte('created_at', toDate);
-    }
+        if (fromDate && toDate) {
+          builder = builder.gte('created_at', fromDate).lte('created_at', toDate);
+        }
 
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    return data ?? [];
+        return await builder;
+      },
+      {
+        message: 'Failed to list diary summaries with filter',
+        code: 'diary_filtered_list_failed',
+      },
+    );
+
+    return summaries ?? [];
   },
 
   /**
    * 📖 단일 일기 조회
    */
-  async getDiary(userId: string, diaryId: string): Promise<Diary | null> {
-    const { data, error } = await supabase
-      .from('diaries')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('id', diaryId)
-      .single();
+  async getDiary(userId: string, diaryId: string): Promise<IDiary | null> {
+    const diary = await wrapQuery<IDiary | null>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('id', diaryId)
+          .maybeSingle(),
+      { message: 'Failed to fetch diary', code: 'diary_fetch_failed' },
+    );
 
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw new Error(error.message);
-    }
-    return data;
+    return diary;
   },
 
   /**
    * 🛠️ 일기 수정
    */
-  async updateDiary(userId: string, diaryId: string, input: DiaryUpdateInput): Promise<Diary> {
+  async updateDiary(userId: string, diaryId: string, input: IDiaryUpdateInput): Promise<IDiary> {
     const updates: Record<string, any> = { ...input };
 
     if (input.lock_password !== undefined) {
@@ -160,35 +178,50 @@ export const diaryService = {
       delete updates.lock_password;
     }
 
-    const { data, error } = await supabase
-      .from('diaries')
-      .update(updates)
-      .eq('user_id', userId)
-      .eq('id', diaryId)
-      .select()
-      .single();
+    const diary = await wrapQuery<IDiary | null>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .update(updates)
+          .eq('user_id', userId)
+          .eq('id', diaryId)
+          .select()
+          .maybeSingle(),
+      { message: 'Failed to update diary', code: 'diary_update_failed' },
+    );
 
-    if (error) throw new Error(error.message);
-    return data;
+    if (!diary) {
+      throw new AppError('Diary not found', { status: 404, code: 'diary_not_found' });
+    }
+
+    return diary;
   },
 
   /**
    * ❌ 일기 삭제
    */
   async deleteDiary(userId: string, diaryId: string): Promise<void> {
-    const { error } = await supabase
-      .from('diaries')
-      .delete()
-      .eq('user_id', userId)
-      .eq('id', diaryId);
+    const deleted = await wrapQuery<{ id: string } | null>(
+      async () =>
+        await supabase
+          .from('diaries')
+          .delete()
+          .eq('user_id', userId)
+          .eq('id', diaryId)
+          .select('id')
+          .maybeSingle(),
+      { message: 'Failed to delete diary', code: 'diary_delete_failed' },
+    );
 
-    if (error) throw new Error(error.message);
+    if (!deleted) {
+      throw new AppError('Diary not found', { status: 404, code: 'diary_not_found' });
+    }
   },
 
   /**
    * 🔓 잠금 해제 (비밀번호 검증)
    */
-  async unlockDiary(diary: Diary, password: string): Promise<boolean> {
+  async unlockDiary(diary: IDiary, password: string): Promise<boolean> {
     if (!diary.is_locked) return true;
     if (!diary.lock_password_hash) return true;
     return await bcrypt.compare(password, diary.lock_password_hash);

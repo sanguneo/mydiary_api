@@ -8,10 +8,15 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node",
     "resolveJsonModule": true,
     "outDir": "dist",
     "types": ["node"],
     "rootDir": "src",
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["*"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

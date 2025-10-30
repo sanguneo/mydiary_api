@@ -1,8 +1,8 @@
-import type { AuthenticatedUser } from './auth';
+import type { IAuthenticatedUser } from './auth/auth.types';
 
 declare module 'hono' {
   interface ContextVariableMap {
-    user?: AuthenticatedUser;
+    user?: IAuthenticatedUser;
     requestId?: string;
   }
 }
