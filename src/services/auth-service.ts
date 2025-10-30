@@ -19,11 +19,6 @@ export class AuthService {
    * signUp
    * - 계정 유무에 상관없이 인증/초대 메일을 보낸다(가능한 경우).
    * - 성공 시 가능한 user id를 반환, 실패는 에러로 던짐.
-<<<<<<< HEAD
-=======
-   *
-   * 원래 스타일을 유지: 기존 코드에서 동작을 크게 바꾸지 않음.
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
    */
   async signUp(email: string): Promise<string | null> {
     // 1) 기본 시도: inviteUserByEmail — 일부 Supabase 설정에서 초대/확인 메일 전송에 사용됨
@@ -32,33 +27,21 @@ export class AuthService {
         redirectTo: undefined,
       });
       if (error) {
-<<<<<<< HEAD
-=======
-        // 실패한 경우도 다음 폴백으로 처리
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
         throw error;
       }
       const user = data.user;
       if (!user) {
-<<<<<<< HEAD
         throw new AppError('Failed to create user for invitation', {
           status: 500,
           code: 'signup_invite_failed',
         });
-=======
-        throw new Error('User not created');
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
       }
       await profileService.ensureProfile(user.id, user.email);
       return user.id;
     } catch (inviteErr) {
       // invite 실패하더라도 UX 목표는 "메일을 보냈다"이므로 폴백으로 기존 사용자 확인/재전송 시도
-<<<<<<< HEAD
       const reason = inviteErr instanceof Error ? inviteErr.message : String(inviteErr);
       console.warn('inviteUserByEmail failed (fallback to lookup):', reason);
-=======
-      console.warn('inviteUserByEmail failed (fallback to lookup):', inviteErr?.message ?? inviteErr);
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
     }
 
     // 2) 폴백: profiles 테이블 우선 조회 -> admin.listUsers 폴백
@@ -66,15 +49,11 @@ export class AuthService {
     if (!found) {
       // 초대도 실패했고, 사용자도 찾지 못했다면 안전하게 에러 반환
       // (UX 관점에서 여기서도 "성공"으로 돌릴 수 있으나, 명시적으로 실패하도록 유지)
-<<<<<<< HEAD
       throw new AppError('Failed to send verification email', {
         status: 500,
         code: 'signup_failed',
         cause: new Error('No user found after fallback lookup'),
       });
-=======
-      throw new Error('Failed to send verification email');
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
     }
 
     // 프로필 보장
@@ -129,12 +108,8 @@ export class AuthService {
     } catch (otpErr) {
       // OTP 검증 실패일 수 있지만, 일부 설정에서는 verify가 실패하더라도 user가 이미 생성되어 있거나
       // 다른 흐름으로 생성이 필요할 수 있다. 여기서는 폴백으로 계속 진행.
-<<<<<<< HEAD
       const reason = otpErr instanceof Error ? otpErr.message : String(otpErr);
       console.warn('verifyOtp returned error or no user (fallback):', reason);
-=======
-      console.warn('verifyOtp returned error or no user (fallback):', otpErr?.message ?? otpErr);
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
     }
 
     // 폴백 흐름: user 존재 여부 확인 -> 없으면 createUser -> profile 생성 -> 토큰 발급
@@ -162,15 +137,11 @@ export class AuthService {
         return { tokens, needsDisplayName: true };
       } catch (createErr) {
         console.error('createUser fallback failed', createErr);
-<<<<<<< HEAD
         throw new AppError('Failed to verify email', {
           status: 400,
           code: 'verification_failed',
           cause: createErr,
         });
-=======
-        throw new Error('Failed to verify email');
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
       }
     }
 

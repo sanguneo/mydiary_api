@@ -4,10 +4,7 @@ import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authService } from '../services/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../lib/cookies';
-<<<<<<< HEAD
 import { handleRouteError } from '../lib/errors';
-=======
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -44,16 +41,11 @@ authRouter.post('/signup', async (c) => {
       user_id: userId ?? null,
     });
   } catch (error) {
-<<<<<<< HEAD
     return handleRouteError(c, error, {
       message: 'Failed to send verification email',
       status: 500,
       code: 'signup_failed',
     });
-=======
-    console.error('Signup error', error);
-    return c.json({ ok: false, message: 'Failed to send verification email' }, 500);
->>>>>>> 5447c9e (✨회원가입 로그인 기능)
   }
 });
 
