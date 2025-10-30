@@ -1,5 +1,5 @@
+// routes/dev.ts
 import { Hono } from 'hono';
-import { randomUUID } from 'crypto';
 import { createAccessToken, createRefreshToken } from '../lib/tokens';
 import { requireAuth } from '../middleware/auth';
 import { supabase } from '../lib/supabase';
@@ -12,31 +12,31 @@ devRouter.post('/token', async (c) => {
     return c.json({ success: false, error: 'Not available in production' }, 403);
   }
 
-  const body = await c.req.json<{ id?: string; email?: string; role?: string }>().catch(() => ({}));
+  const body = await c.req.json<{ id?: string; email?: string; role?: string }>().catch(() => ({email: null}));
 
-  const email = body.email ?? `anon-${userId.slice(0, 8)}@local.test`;
 
-  // 🔍 Supabase에서 auth.users 조회
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, email')
-    .eq('email', email)
-    .maybeSingle();
+  const email = body.email;
+  if (!email) {
+    return c.json({success: false, error: `No input user email `}, 400);
+  }
+
+  // 🔍 Supabase에서 profiles 조회
+  const { data: profile, error } = await supabase.from('profiles').select('id, email').eq('email', email).maybeSingle();
 
   if (error || !profile) {
     return c.json({ success: false, error: `User not found for email: ${email}` }, 404);
   }
 
-  const { token: accessToken, expiresAt: accessTokenExpiresAt } = await createAccessToken({
+  const { token: accessToken } = await createAccessToken({
     id: profile.id,
     email: profile.email,
-    role: profile.role ?? 'user',
+    role: 'user',
   });
 
-  const { token: refreshToken, expiresAt: refreshTokenExpiresAt } = await createRefreshToken({
+  const { token: refreshToken } = await createRefreshToken({
     id: profile.id,
     email: profile.email,
-    role: profile.role ?? 'user',
+    role: 'user',
   });
 
   return c.json({
@@ -45,9 +45,7 @@ devRouter.post('/token', async (c) => {
       user: { id: profile.id, email },
       tokens: {
         accessToken,
-        accessTokenExpiresAt,
         refreshToken,
-        refreshTokenExpiresAt,
       },
     },
   });
